@@ -1,4 +1,4 @@
-import 'package:camera/src/camera_controller.dart';
+import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import '../../../../core/services/camera_service.dart';
 
