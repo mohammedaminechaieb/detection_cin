@@ -470,20 +470,16 @@ class DocumentDetectionDataSource {
   }) {
     final w = orientedCard.cols;
 
-    // --- Signal couleur : capture les transitions rose -> blanc que Canny
-    // sur le gris rate, car la luminosite est quasi identique des deux cotes.
     final hsv = cv.cvtColor(orientedCard, cv.COLOR_BGR2HSV);
     final channels = cv.split(hsv);
     hsv.dispose();
     final saturation = channels[1];
-    channels[0].dispose(); // hue, inutile ici
-    channels[2].dispose(); // value, inutile ici
+    channels[0].dispose();
+    channels[2].dispose();
 
     final blurredSat = cv.gaussianBlur(saturation, (5, 5), 0);
     saturation.dispose();
 
-    // Sobel vertical (dy) : une ligne horizontale = un changement brutal de
-    // saturation le long de l'axe Y, donc un fort gradient dy a cet endroit.
     final gradY = cv.sobel(blurredSat, cv.MatType.CV_32F, 0, 1, ksize: 3);
     blurredSat.dispose();
     final absGradY = cv.convertScaleAbs(gradY);
@@ -492,13 +488,10 @@ class DocumentDetectionDataSource {
     final (_, colorEdges) = cv.threshold(absGradY, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
     absGradY.dispose();
 
-    // --- Signal luminosite classique en complement, pour les cartes ou la
-    // ligne EST un vrai contraste clair/fonce ---
     final gray = cv.cvtColor(orientedCard, cv.COLOR_BGR2GRAY);
     final grayEdges = cv.canny(gray, 50, 150);
     gray.dispose();
 
-    // Combine les deux signaux -- une ligne detectee par l'un OU l'autre compte
     final edges = cv.bitwiseOR(colorEdges, grayEdges);
     colorEdges.dispose();
     grayEdges.dispose();

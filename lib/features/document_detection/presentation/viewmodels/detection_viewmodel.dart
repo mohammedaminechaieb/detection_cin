@@ -92,28 +92,28 @@ class DetectionViewModel extends ChangeNotifier {
       final mat = _cameraImageToMat(image);
       onDebugFrame?.call(mat);
 
-      // final document = repository.detectDocument(mat);
+      final document = repository.detectDocument(mat);
 
-      // if (!document.isDetected || document.quad == null) {
-      //   _resetAllStreaks();
-      //   if (_currentSide == CardSide.front) {
-      //     _lastFrontResult = CardAnalysisResult.none();
-      //   } else {
-      //     _lastBackResult = BackAnalysisResult.none();
-      //   }
-      //   notifyListeners();
-      //   return;
-      // }
+      if (!document.isDetected || document.quad == null) {
+        _resetAllStreaks();
+        if (_currentSide == CardSide.front) {
+          _lastFrontResult = CardAnalysisResult.none();
+        } else {
+          _lastBackResult = BackAnalysisResult.none();
+        }
+        notifyListeners();
+        return;
+      }
 
-      // final warped = repository.warpDocument(mat, document.quad!);
+      final warped = repository.warpDocument(mat, document.quad!);
 
-      // if (_currentSide == CardSide.front) {
-      //   _analyzeFront(document, warped);
-      // } else {
-      //   _analyzeBack(document, warped);
-      // }
+      if (_currentSide == CardSide.front) {
+        _analyzeFront(document, warped);
+      } else {
+        _analyzeBack(document, warped);
+      }
 
-      // notifyListeners();
+      notifyListeners();
     } catch (e) {
       debugPrint('Erreur detection frame: $e');
     } finally {
@@ -122,7 +122,6 @@ class DetectionViewModel extends ChangeNotifier {
   }
 
   void _analyzeFront(DetectedDocument document, cv.Mat warped) {
-    print("detecting front side");
     final (photo, faceBox) = repository.detectPhoto(warped);
     final oriented = repository.applyRotation(warped, photo.rotationDegrees);
 
