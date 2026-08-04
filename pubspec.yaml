@@ -42,9 +42,15 @@ dependencies:
 
 dependency_overrides:
   opencv_dart:
-    path: C:\dev\opencv_dart\packages\opencv_dart
+    git:
+      url: https://github.com/mohammedaminechaieb/opencv_dart.git
+      ref: add-barcode-detector
+      path: packages/opencv_dart
   dartcv4:
-    path: C:\dev\opencv_dart\packages\dartcv
+    git:
+      url: https://github.com/mohammedaminechaieb/opencv_dart.git
+      ref: add-barcode-detector
+      path: packages/dartcv
 
 hooks:
   user_defines:

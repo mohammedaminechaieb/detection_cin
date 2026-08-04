@@ -156,9 +156,11 @@ packages:
   dartcv4:
     dependency: "direct overridden"
     description:
-      path: "C:\\dev\\opencv_dart\\packages\\dartcv"
-      relative: false
-    source: path
+      path: "packages/dartcv"
+      ref: add-barcode-detector
+      resolved-ref: "034793bd46bd7c3ce02db2749ccf3826d6b885e9"
+      url: "https://github.com/mohammedaminechaieb/opencv_dart.git"
+    source: git
     version: "2.2.2"
   fake_async:
     dependency: transitive
@@ -386,9 +388,11 @@ packages:
   opencv_dart:
     dependency: "direct main"
     description:
-      path: "C:\\dev\\opencv_dart\\packages\\opencv_dart"
-      relative: false
-    source: path
+      path: "packages/opencv_dart"
+      ref: add-barcode-detector
+      resolved-ref: "034793bd46bd7c3ce02db2749ccf3826d6b885e9"
+      url: "https://github.com/mohammedaminechaieb/opencv_dart.git"
+    source: git
     version: "2.2.2"
   package_config:
     dependency: transitive
