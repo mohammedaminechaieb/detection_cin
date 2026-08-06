@@ -19,11 +19,16 @@ class _Candidate {
 class DocumentDetectionDataSource {
   cv.CascadeClassifier? _faceCascade;
   cv.BarcodeDetector? _barcodeDetector;
+  CardQuad? _trackedQuad;
+
+  void resetTracking() {
+    _trackedQuad = null;
+  }
 
   static final _kernel5 = cv.getStructuringElement(cv.MORPH_RECT, (5, 5));
   static final _kernel9 = cv.getStructuringElement(cv.MORPH_RECT, (9, 9));
   static final _kernel15 = cv.getStructuringElement(cv.MORPH_RECT, (15, 15));
-  static const double _earlyExitScore = 0.75;
+  static const double _earlyExitScore = 0.65;
 
   DocumentDetectionDataSource(String cascadePath) {
     _faceCascade = cv.CascadeClassifier.empty();
@@ -103,6 +108,13 @@ class DocumentDetectionDataSource {
     filtered.dispose();
 
     return result;
+  }
+
+  cv.Mat _preprocessGrayFast(cv.Mat image) {
+    final gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY);
+    final blurred = cv.gaussianBlur(gray, (3, 3), 0);
+    gray.dispose();
+    return blurred;
   }
 
   cv.Mat loadTemplateFromBytes(Uint8List bytes) {
@@ -236,42 +248,146 @@ class DocumentDetectionDataSource {
   }
 
   DetectedDocument detectCard(cv.Mat image) {
-    const scaleFactor = 1.0;
-    final small = cv.resize(image, (0, 0), fx: scaleFactor, fy: scaleFactor);
+    final tracked = _trackedQuad;
 
-    final gray = _preprocessGray(small);
-    final imageArea = (small.rows * small.cols).toDouble();
-    final (candidates, m1, m2, m3, m4) = _findCandidates(gray, small, imageArea);
+    if (tracked == null) {
+      final result = _detectFullFrame(image);
+      _trackedQuad = result.isDetected ? result.quad : null;
+      return result;
+    }
 
-    small.dispose();
-    gray.dispose();
+    final result = _detectAroundTrackedQuad(image, tracked);
+    if (result == null) {
+      
+      
+      _trackedQuad = null;
+      return DetectedDocument.none();
+    }
+
+    _trackedQuad = result.quad;
+    return result;
+  }
+
+  DetectedDocument _detectFullFrame(cv.Mat image) {
+    const coarseScale = 0.3;
+    final coarse = cv.resize(image, (0, 0), fx: coarseScale, fy: coarseScale);
+
+    final coarseGray = _preprocessGrayFast(coarse);
+    final coarseArea = (coarse.rows * coarse.cols).toDouble();
+    final (coarseCandidates, m1, m2, m3, m4) = _findCandidates(coarseGray, coarse, coarseArea);
+
+    coarse.dispose();
+    coarseGray.dispose();
     m1.dispose();
     m2.dispose();
     m3.dispose();
     m4.dispose();
 
-    if (candidates.isEmpty) return DetectedDocument.none();
+    if (coarseCandidates.isEmpty) return DetectedDocument.none();
+    coarseCandidates.sort((a, b) => b.score.compareTo(a.score));
+    final coarseBest = coarseCandidates.first;
+    if (coarseBest.score < kMinScore) return DetectedDocument.none();
 
+    final fullW = image.cols;
+    final fullH = image.rows;
+
+    final xs = [
+      coarseBest.quad.topLeft.x, coarseBest.quad.topRight.x,
+      coarseBest.quad.bottomRight.x, coarseBest.quad.bottomLeft.x,
+    ];
+    final ys = [
+      coarseBest.quad.topLeft.y, coarseBest.quad.topRight.y,
+      coarseBest.quad.bottomRight.y, coarseBest.quad.bottomLeft.y,
+    ];
+
+    final minX = xs.reduce(math.min) / coarseScale;
+    final maxX = xs.reduce(math.max) / coarseScale;
+    final minY = ys.reduce(math.min) / coarseScale;
+    final maxY = ys.reduce(math.max) / coarseScale;
+
+    const marginFrac = 0.15;
+    final boxW = maxX - minX;
+    final boxH = maxY - minY;
+    final marginX = boxW * marginFrac;
+    final marginY = boxH * marginFrac;
+
+    final cropX1 = math.max(0, (minX - marginX).toInt());
+    final cropY1 = math.max(0, (minY - marginY).toInt());
+    final cropX2 = math.min(fullW, (maxX + marginX).toInt());
+    final cropY2 = math.min(fullH, (maxY + marginY).toInt());
+
+    return _detectInCroppedRegion(image, cropX1, cropY1, cropX2, cropY2) ??
+        DetectedDocument.none();
+  }
+
+  DetectedDocument? _detectAroundTrackedQuad(cv.Mat image, CardQuad previousQuad) {
+    final fullW = image.cols;
+    final fullH = image.rows;
+
+    final xs = [
+      previousQuad.topLeft.x, previousQuad.topRight.x,
+      previousQuad.bottomRight.x, previousQuad.bottomLeft.x,
+    ];
+    final ys = [
+      previousQuad.topLeft.y, previousQuad.topRight.y,
+      previousQuad.bottomRight.y, previousQuad.bottomLeft.y,
+    ];
+
+    final minX = xs.reduce(math.min);
+    final maxX = xs.reduce(math.max);
+    final minY = ys.reduce(math.min);
+    final maxY = ys.reduce(math.max);
+
+    const marginFrac = 0.20; 
+    final boxW = maxX - minX;
+    final boxH = maxY - minY;
+    final marginX = boxW * marginFrac;
+    final marginY = boxH * marginFrac;
+
+    final cropX1 = math.max(0, (minX - marginX).toInt());
+    final cropY1 = math.max(0, (minY - marginY).toInt());
+    final cropX2 = math.min(fullW, (maxX + marginX).toInt());
+    final cropY2 = math.min(fullH, (maxY + marginY).toInt());
+
+    return _detectInCroppedRegion(image, cropX1, cropY1, cropX2, cropY2);
+  }
+
+  DetectedDocument? _detectInCroppedRegion(
+    cv.Mat image,
+    int cropX1,
+    int cropY1,
+    int cropX2,
+    int cropY2,
+  ) {
+    final cropW = cropX2 - cropX1;
+    final cropH = cropY2 - cropY1;
+    if (cropW <= 0 || cropH <= 0) return null;
+
+    final region = image.region(cv.Rect(cropX1, cropY1, cropW, cropH));
+
+    final gray = _preprocessGray(region);
+    final regionArea = (region.rows * region.cols).toDouble();
+    final (candidates, rm1, rm2, rm3, rm4) = _findCandidates(gray, region, regionArea);
+
+    gray.dispose();
+    rm1.dispose();
+    rm2.dispose();
+    rm3.dispose();
+    rm4.dispose();
+
+    if (candidates.isEmpty) return null;
     candidates.sort((a, b) => b.score.compareTo(a.score));
     final best = candidates.first;
+    if (best.score < kMinScore) return null;
 
-    if (best.score < kMinScore) return DetectedDocument.none();
-
-    final scaledQuad = CardQuad(
-      topLeft: CardPoint(best.quad.topLeft.x / scaleFactor, best.quad.topLeft.y / scaleFactor),
-      topRight: CardPoint(best.quad.topRight.x / scaleFactor, best.quad.topRight.y / scaleFactor),
-      bottomRight:
-          CardPoint(best.quad.bottomRight.x / scaleFactor, best.quad.bottomRight.y / scaleFactor),
-      bottomLeft:
-          CardPoint(best.quad.bottomLeft.x / scaleFactor, best.quad.bottomLeft.y / scaleFactor),
+    final finalQuad = CardQuad(
+      topLeft: CardPoint(best.quad.topLeft.x + cropX1, best.quad.topLeft.y + cropY1),
+      topRight: CardPoint(best.quad.topRight.x + cropX1, best.quad.topRight.y + cropY1),
+      bottomRight: CardPoint(best.quad.bottomRight.x + cropX1, best.quad.bottomRight.y + cropY1),
+      bottomLeft: CardPoint(best.quad.bottomLeft.x + cropX1, best.quad.bottomLeft.y + cropY1),
     );
 
-    return DetectedDocument(
-      isDetected: true,
-      quad: scaledQuad,
-      score: best.score,
-      source: best.source,
-    );
+    return DetectedDocument(isDetected: true, quad: finalQuad, score: best.score, source: best.source);
   }
 
   cv.Mat warpCard(cv.Mat image, CardQuad quad) {

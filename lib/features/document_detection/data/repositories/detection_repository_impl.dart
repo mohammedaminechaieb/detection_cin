@@ -17,7 +17,8 @@ class DetectionRepositoryImpl implements DetectionRepository {
   @override
   cv.Mat warpDocument(cv.Mat frame, CardQuad quad) => dataSource.warpCard(frame, quad);
 
-  
+  @override
+  void resetTracking() => dataSource.resetTracking();
 
   @override
   (PhotoDetectionResult, CardRect?) detectPhoto(cv.Mat warpedCard) =>

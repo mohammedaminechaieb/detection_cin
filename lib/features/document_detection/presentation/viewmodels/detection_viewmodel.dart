@@ -18,13 +18,13 @@ class DetectionViewModel extends ChangeNotifier {
     _flagTemplate = repository.loadTemplateFromBytes(flagBytes);
   }
 
-  
   CardSide _currentSide = CardSide.front;
   CardSide get currentSide => _currentSide;
 
   void setSide(CardSide side) {
     _currentSide = side;
     _resetAllStreaks();
+    repository.resetTracking();
     notifyListeners();
   }
 
@@ -76,7 +76,7 @@ class DetectionViewModel extends ChangeNotifier {
   bool get isSeparationLineDetected => _stable('separation_line');
 
   DateTime _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
-  static const _throttle = Duration(milliseconds: 250);
+  static const _throttle = Duration(milliseconds: 350);
   bool _busy = false;
 
   void Function(cv.Mat mat)? onDebugFrame;

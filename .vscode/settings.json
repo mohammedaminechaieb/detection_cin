@@ -1,0 +1,18 @@
+{
+    "cSpell.words": [
+        "CCOEFF",
+        "clahe",
+        "CLAHE",
+        "couleur",
+        "GRAYSCALE",
+        "imdecode",
+        "imread",
+        "IMREAD",
+        "introuvable",
+        "ksize",
+        "OTSU",
+        "RETR",
+        "sobel",
+        "stddev"
+    ]
+}
