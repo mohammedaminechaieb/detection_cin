@@ -2,7 +2,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import '../../../../core/services/camera_service.dart';
 
-
 class CameraViewModel extends ChangeNotifier {
   final CameraService _cameraService;
 

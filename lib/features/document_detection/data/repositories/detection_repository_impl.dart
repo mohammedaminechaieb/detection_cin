@@ -34,10 +34,10 @@ class DetectionRepositoryImpl implements DetectionRepository {
   @override
   (bool, double) detectFlag(cv.Mat orientedCard, cv.Mat templateFlag) =>
       dataSource.detectFlag(orientedCard, templateFlag);
+
   @override
-  cv.Mat applyRotation(cv.Mat image, int degrees) => 
-    dataSource.applyRotation(image, degrees);
-  
+  cv.Mat applyRotation(cv.Mat image, int degrees) =>
+      dataSource.applyRotation(image, degrees);
 
   @override
   (bool, double) detectBarcodePresence(cv.Mat orientedCard) =>

@@ -1,12 +1,10 @@
 import 'dart:ui';
 
-
 class CardPoint {
   final double x;
   final double y;
   const CardPoint(this.x, this.y);
 }
-
 
 class CardQuad {
   final CardPoint topLeft;
@@ -29,13 +27,14 @@ class CardQuad {
       ];
 }
 
-
-
 class DetectedDocument {
   final bool isDetected;
   final CardQuad? quad;
   final double score;
-  final String source; 
+
+  // Which candidate-generation pass produced this quad: 'canny', 'canny_fin',
+  // 'adaptive', or 'couleur'. See DocumentDetectionDataSource._findCandidates.
+  final String source;
 
   const DetectedDocument({
     required this.isDetected,
@@ -48,10 +47,9 @@ class DetectedDocument {
       const DetectedDocument(isDetected: false, quad: null, score: 0, source: '');
 }
 
-
 class PhotoDetectionResult {
   final bool found;
-  final int rotationDegrees; 
+  final int rotationDegrees;
   final double confidence;
 
   const PhotoDetectionResult({
@@ -63,8 +61,6 @@ class PhotoDetectionResult {
   factory PhotoDetectionResult.none() =>
       const PhotoDetectionResult(found: false, rotationDegrees: 0, confidence: 0);
 }
-
-
 
 class CardRect {
   final double x, y, width, height;
@@ -109,7 +105,7 @@ class BackAnalysisResult {
   final double fingerprintScore;
   final bool separationLineFound;
   final double separationLineScore;
- 
+
   const BackAnalysisResult({
     required this.document,
     required this.barcodeFound,
@@ -119,7 +115,7 @@ class BackAnalysisResult {
     required this.separationLineFound,
     required this.separationLineScore,
   });
- 
+
   factory BackAnalysisResult.none() => BackAnalysisResult(
         document: DetectedDocument.none(),
         barcodeFound: false,
@@ -130,7 +126,5 @@ class BackAnalysisResult {
         separationLineScore: 0,
       );
 }
- 
-enum CardSide { front, back }
- 
 
+enum CardSide { front, back }

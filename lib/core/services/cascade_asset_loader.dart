@@ -2,9 +2,6 @@ import 'dart:io';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path_provider/path_provider.dart';
 
-
-
-
 Future<String> loadCascadeAssetPath({
   String assetPath = 'assets/haarcascade_frontalface_default.xml',
   String fileName = 'haarcascade_frontalface_default.xml',

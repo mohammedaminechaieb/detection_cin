@@ -4,15 +4,24 @@
         "clahe",
         "CLAHE",
         "couleur",
+        "Erreur",
+        "frontalface",
         "GRAYSCALE",
+        "haarcascade",
         "imdecode",
         "imread",
         "IMREAD",
         "introuvable",
+        "invalide",
+        "invalides",
         "ksize",
         "OTSU",
+        "pubspec",
+        "rescan",
         "RETR",
         "sobel",
-        "stddev"
+        "stddev",
+        "viewmodel",
+        "viewmodel's"
     ]
 }

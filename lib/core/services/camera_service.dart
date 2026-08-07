@@ -1,7 +1,6 @@
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-
 class CameraService {
   CameraController? _controller;
   List<CameraDescription> _cameras = [];
@@ -9,12 +8,10 @@ class CameraService {
   CameraController? get controller => _controller;
   bool get isInitialized => _controller?.value.isInitialized ?? false;
 
-
   Future<bool> requestPermission() async {
     final status = await Permission.camera.request();
     return status.isGranted;
   }
-
 
   Future<void> initialize() async {
     final hasPermission = await requestPermission();

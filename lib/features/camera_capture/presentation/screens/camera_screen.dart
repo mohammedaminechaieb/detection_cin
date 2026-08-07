@@ -62,7 +62,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
           return Center(
             child: AspectRatio(
-              aspectRatio: 1 / controller.value.aspectRatio, 
+              aspectRatio: 1 / controller.value.aspectRatio,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -82,7 +82,6 @@ class _CameraScreenState extends State<CameraScreen> {
                     },
                   ),
 
-                  
                   Positioned(
                     bottom: 20,
                     left: 0,

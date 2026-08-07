@@ -2,13 +2,25 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 
+import '../../../../shared/utils/camera_image_converter.dart';
+import '../../../../shared/utils/detection_stabilizer.dart';
 import '../../domain/entities/detected_document.dart';
 import '../../domain/repositories/detection_repository.dart';
 
+/// Drives the live camera analysis loop: converts each camera frame to a
+/// Mat, runs it through [DetectionRepository], and exposes stabilized
+/// detection state for the UI to render.
 class DetectionViewModel extends ChangeNotifier {
-  final DetectionRepository repository;
+  DetectionViewModel(
+    this.repository, {
+    CameraImageConverter? imageConverter,
+    DetectionStabilizer? stabilizer,
+  })  : _imageConverter = imageConverter ?? const CameraImageConverter(),
+        _stabilizer = stabilizer ?? DetectionStabilizer();
 
-  DetectionViewModel(this.repository);
+  final DetectionRepository repository;
+  final CameraImageConverter _imageConverter;
+  final DetectionStabilizer _stabilizer;
 
   cv.Mat? _logoTemplate;
   cv.Mat? _flagTemplate;
@@ -23,7 +35,7 @@ class DetectionViewModel extends ChangeNotifier {
 
   void setSide(CardSide side) {
     _currentSide = side;
-    _resetAllStreaks();
+    _stabilizer.resetAll();
     repository.resetTracking();
     notifyListeners();
   }
@@ -33,52 +45,22 @@ class DetectionViewModel extends ChangeNotifier {
   CardAnalysisResult get lastFrontResult => _lastFrontResult;
   BackAnalysisResult get lastBackResult => _lastBackResult;
 
-  
-  static const int _framesToConfirm = 3;
-  static const int _framesToReset = 2;
+  bool get isBorderDetected => _stabilizer.isStable('border');
+  bool get isFaceDetected => _stabilizer.isStable('face');
+  bool get isLogoDetected => _stabilizer.isStable('logo');
+  bool get isFlagDetected => _stabilizer.isStable('flag');
 
-  final Map<String, int> _hitStreaks = {};
-  final Map<String, int> _missStreaks = {};
-  final Map<String, bool> _stableStates = {};
-
-  bool _stable(String key) => _stableStates[key] ?? false;
-
-  void _updateOne(String key, bool raw, {int framesToConfirm = _framesToConfirm}) {
-    final hit = _hitStreaks[key] ?? 0;
-    final miss = _missStreaks[key] ?? 0;
-
-    if (raw) {
-      _hitStreaks[key] = hit + 1;
-      _missStreaks[key] = 0;
-      if (_hitStreaks[key]! >= _framesToConfirm) _stableStates[key] = true;
-    } else {
-      _missStreaks[key] = miss + 1;
-      _hitStreaks[key] = 0;
-      if (_missStreaks[key]! >= _framesToReset) _stableStates[key] = false;
-    }
-  }
-
-  void _resetAllStreaks() {
-    _hitStreaks.clear();
-    _missStreaks.clear();
-    _stableStates.clear();
-  }
-
-  
-  bool get isBorderDetected => _stable('border');
-  bool get isFaceDetected => _stable('face');
-  bool get isLogoDetected => _stable('logo');
-  bool get isFlagDetected => _stable('flag');
-
-  
-  bool get isBarcodeDetected => _stable('barcode');
-  bool get isFingerprintDetected => _stable('fingerprint');
-  bool get isSeparationLineDetected => _stable('separation_line');
+  bool get isBarcodeDetected => _stabilizer.isStable('barcode');
+  bool get isFingerprintDetected => _stabilizer.isStable('fingerprint');
+  bool get isSeparationLineDetected => _stabilizer.isStable('separation_line');
 
   DateTime _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
   static const _throttle = Duration(milliseconds: 350);
   bool _busy = false;
 
+  /// Receives the Mat converted from each analyzed frame, for debug
+  /// preview overlays. The Mat is disposed as soon as [onFrame] finishes,
+  /// so implementations must use it synchronously and not retain it.
   void Function(cv.Mat mat)? onDebugFrame;
 
   void onFrame(CameraImage image) {
@@ -88,14 +70,16 @@ class DetectionViewModel extends ChangeNotifier {
     _busy = true;
     _lastAnalysis = now;
 
+    cv.Mat? mat;
+    cv.Mat? warped;
     try {
-      final mat = _cameraImageToMat(image);
+      mat = _imageConverter.toBgrMat(image);
       onDebugFrame?.call(mat);
 
       final document = repository.detectDocument(mat);
 
       if (!document.isDetected || document.quad == null) {
-        _resetAllStreaks();
+        _stabilizer.resetAll();
         if (_currentSide == CardSide.front) {
           _lastFrontResult = CardAnalysisResult.none();
         } else {
@@ -105,7 +89,7 @@ class DetectionViewModel extends ChangeNotifier {
         return;
       }
 
-      final warped = repository.warpDocument(mat, document.quad!);
+      warped = repository.warpDocument(mat, document.quad!);
 
       if (_currentSide == CardSide.front) {
         _analyzeFront(document, warped);
@@ -117,6 +101,10 @@ class DetectionViewModel extends ChangeNotifier {
     } catch (e) {
       debugPrint('Erreur detection frame: $e');
     } finally {
+      // `warped` and `mat` are distinct Mats (warpDocument always allocates
+      // a new one), so disposing both here is always safe.
+      warped?.dispose();
+      mat?.dispose();
       _busy = false;
     }
   }
@@ -141,6 +129,14 @@ class DetectionViewModel extends ChangeNotifier {
       flagScore = score;
     }
 
+    // applyRotation returns the same Mat instance (not a copy) when no
+    // rotation is needed, so only dispose `oriented` when it's a distinct
+    // Mat - otherwise this would double-free `warped`, which the caller
+    // (onFrame) also disposes.
+    if (!identical(oriented, warped)) {
+      oriented.dispose();
+    }
+
     _lastFrontResult = CardAnalysisResult(
       document: document,
       photo: photo,
@@ -151,10 +147,10 @@ class DetectionViewModel extends ChangeNotifier {
       flagScore: flagScore,
     );
 
-    _updateOne('border', document.isDetected);
-    _updateOne('face', photo.found);
-    _updateOne('logo', logoFound);
-    _updateOne('flag', flagFound);
+    _stabilizer.update('border', document.isDetected);
+    _stabilizer.update('face', photo.found);
+    _stabilizer.update('logo', logoFound);
+    _stabilizer.update('flag', flagFound);
   }
 
   void _analyzeBack(DetectedDocument document, cv.Mat warped) {
@@ -172,66 +168,9 @@ class DetectionViewModel extends ChangeNotifier {
       separationLineScore: lineScore,
     );
 
-    _updateOne('border', document.isDetected);
-    _updateOne('barcode', barcodeFound);
-    _updateOne('fingerprint', fingerprintFound);
-    _updateOne('separation_line', lineFound, framesToConfirm: 1);
-  }
-
-  cv.Mat _cameraImageToMat(CameraImage image) {
-    if (image.format.group == ImageFormatGroup.bgra8888) {
-      final plane = image.planes.first;
-      final mat = cv.Mat.fromList(
-        image.height,
-        image.width,
-        cv.MatType.CV_8UC4,
-        plane.bytes,
-      );
-      return cv.cvtColor(mat, cv.COLOR_BGRA2BGR);
-    }
-    return _convertYuv420ToMat(image);
-  }
-
-  cv.Mat _convertYuv420ToMat(CameraImage image) {
-    final width = image.width;
-    final height = image.height;
-
-    final yPlane = image.planes[0];
-    final uPlane = image.planes[1];
-    final vPlane = image.planes[2];
-
-    final nv21 = Uint8List(width * height + 2 * (width ~/ 2) * (height ~/ 2));
-
-    var offset = 0;
-    final yRowStride = yPlane.bytesPerRow.toInt();
-    for (var row = 0; row < height; row++) {
-      final rowStart = row * yRowStride;
-      nv21.setRange(offset, offset + width, yPlane.bytes, rowStart);
-      offset += width;
-    }
-
-    final uvRowStride = uPlane.bytesPerRow.toInt();
-    final uvPixelStride = (uPlane.bytesPerPixel ?? 1).toInt();
-    final chromaHeight = height ~/ 2;
-    final chromaWidth = width ~/ 2;
-
-    for (var row = 0; row < chromaHeight; row++) {
-      for (var col = 0; col < chromaWidth; col++) {
-        final uIndex = (row * uvRowStride + col * uvPixelStride).toInt();
-        final vIndex = (row * uvRowStride + col * uvPixelStride).toInt();
-
-        nv21[offset++] = vPlane.bytes[vIndex];
-        nv21[offset++] = uPlane.bytes[uIndex];
-      }
-    }
-
-    final yuvMat = cv.Mat.fromList(
-      (height * 1.5).toInt(),
-      width,
-      cv.MatType.CV_8UC1,
-      nv21,
-    );
-
-    return cv.cvtColor(yuvMat, cv.COLOR_YUV2BGR_NV21);
+    _stabilizer.update('border', document.isDetected);
+    _stabilizer.update('barcode', barcodeFound);
+    _stabilizer.update('fingerprint', fingerprintFound);
+    _stabilizer.update('separation_line', lineFound, framesToConfirm: 1);
   }
 }

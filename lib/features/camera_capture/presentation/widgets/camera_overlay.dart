@@ -5,12 +5,10 @@ class CameraOverlay extends StatelessWidget {
   final CardSide side;
   final bool isBorderDetected;
 
-  
   final bool isFaceDetected;
   final bool isLogoDetected;
   final bool isFlagDetected;
 
-  
   final bool isBarcodeDetected;
   final bool isFingerprintDetected;
   final bool isSeparationLineDetected;
@@ -128,7 +126,7 @@ class _BackGuideSilhouettes extends StatelessWidget {
 
         return Stack(
           children: [
-            
+
             Positioned(
               left: w * 0.68,
               top: h * 0.28,
@@ -137,9 +135,6 @@ class _BackGuideSilhouettes extends StatelessWidget {
               child: _GuideIcon(icon: Icons.fingerprint, detected: isFingerprintDetected),
             ),
 
-            
-            
-            
             Positioned(
               left: w * 0.17,
               top: h * 0.775,
@@ -148,8 +143,6 @@ class _BackGuideSilhouettes extends StatelessWidget {
               child: _GuideBar(detected: isSeparationLineDetected, direction: Axis.horizontal),
             ),
 
-            
-            
             Positioned(
               left: w * 0.22,
               top: h * 0.82,
@@ -185,19 +178,14 @@ class _GuideImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = detected ? Colors.green : Colors.red;
-    
-    
-    
+
     return SizedBox.expand(
       child: Image.asset(
         assetPath,
         color: color,
         colorBlendMode: BlendMode.srcIn,
         fit: fit,
-        
-        
-        
-        
+
         errorBuilder: (context, error, stackTrace) {
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -220,8 +208,7 @@ class _GuideIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = detected ? Colors.green : Colors.red;
-    
-    
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = constraints.biggest.shortestSide.clamp(16.0, 200.0) * 0.75;
@@ -230,9 +217,6 @@ class _GuideIcon extends StatelessWidget {
     );
   }
 }
-
-
-
 
 class _GuideBar extends StatelessWidget {
   final bool detected;
