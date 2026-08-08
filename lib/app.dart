@@ -8,6 +8,7 @@ import 'features/camera_capture/presentation/screens/camera_screen.dart';
 import 'features/document_detection/data/datasources/document_detection_datasource.dart';
 import 'features/document_detection/data/repositories/detection_repository_impl.dart';
 import 'features/document_detection/presentation/viewmodels/detection_viewmodel.dart';
+import 'features/autocapture/presentation/viewmodels/autocapture_viewmodel.dart';
 
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
@@ -18,6 +19,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   DetectionViewModel? _detectionViewModel;
+  AutocaptureViewModel? _autocaptureViewModel;
 
   @override
   void initState() {
@@ -35,7 +37,17 @@ class _MyAppState extends State<MyApp> {
 
     final detectionDatasource = DocumentDetectionDataSource(cascadePath);
     final detectionRepository = DetectionRepositoryImpl(detectionDatasource);
-    final viewModel = DetectionViewModel(detectionRepository);
+
+    final autocaptureViewModel = AutocaptureViewModel(
+      onCaptureReady: () {
+        // TODO next step: actually grab/save the still frame
+      },
+    );
+
+    final viewModel = DetectionViewModel(
+      detectionRepository,
+      autocaptureViewModel: autocaptureViewModel,
+    );
     viewModel.loadTemplates(
       logoBytes: logoData.buffer.asUint8List(),
       flagBytes: flagData.buffer.asUint8List(),
@@ -44,13 +56,14 @@ class _MyAppState extends State<MyApp> {
     if (!mounted) return;
     setState(() {
       _detectionViewModel = viewModel;
+      _autocaptureViewModel = autocaptureViewModel;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     // Ecran de chargement le temps que le cascade + les templates soient prets
-    if (_detectionViewModel == null) {
+    if (_detectionViewModel == null || _autocaptureViewModel == null) {
       return const MaterialApp(
         debugShowCheckedModeBanner: false,
         home: Scaffold(
@@ -66,6 +79,9 @@ class _MyAppState extends State<MyApp> {
         ),
         ChangeNotifierProvider.value(
           value: _detectionViewModel!,
+        ),
+        ChangeNotifierProvider.value(
+          value: _autocaptureViewModel!,
         ),
       ],
       child: MaterialApp(

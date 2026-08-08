@@ -1,26 +1,51 @@
+import 'dart:ui' show Offset;
+
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 
 import '../../../../shared/utils/camera_image_converter.dart';
 import '../../../../shared/utils/detection_stabilizer.dart';
+import '../../../image_quality/data/datasources/detectors/blur_detector.dart';
+import '../../../image_quality/data/datasources/detectors/brightness_detector.dart';
+import '../../../image_quality/data/datasources/detectors/stability_tracker.dart';
 import '../../domain/entities/detected_document.dart';
+import '../../../autocapture/domain/entities/quality_report.dart';
 import '../../domain/repositories/detection_repository.dart';
+import '../../../autocapture/presentation/viewmodels/autocapture_viewmodel.dart';
 
 /// Drives the live camera analysis loop: converts each camera frame to a
 /// Mat, runs it through [DetectionRepository], and exposes stabilized
 /// detection state for the UI to render.
+///
+/// Since Step 3, it also runs the quality checks (sharpness, brightness,
+/// quad stability) each frame and forwards a [QualityReport] to
+/// [autocaptureViewModel], if one was provided.
 class DetectionViewModel extends ChangeNotifier {
   DetectionViewModel(
     this.repository, {
     CameraImageConverter? imageConverter,
     DetectionStabilizer? stabilizer,
+    BlurDetector? blurDetector,
+    BrightnessDetector? brightnessDetector,
+    StabilityTracker? stabilityTracker,
+    this.autocaptureViewModel,
   })  : _imageConverter = imageConverter ?? const CameraImageConverter(),
-        _stabilizer = stabilizer ?? DetectionStabilizer();
+        _stabilizer = stabilizer ?? DetectionStabilizer(),
+        _blurDetector = blurDetector ?? const BlurDetector(),
+        _brightnessDetector = brightnessDetector ?? const BrightnessDetector(),
+        _stabilityTracker = stabilityTracker ?? StabilityTracker();
 
   final DetectionRepository repository;
   final CameraImageConverter _imageConverter;
   final DetectionStabilizer _stabilizer;
+  final BlurDetector _blurDetector;
+  final BrightnessDetector _brightnessDetector;
+  final StabilityTracker _stabilityTracker;
+
+  /// Optional - if provided, [onFrame] feeds it a [QualityReport] every
+  /// analyzed frame so it can drive the Step 3 autocapture state machine.
+  final AutocaptureViewModel? autocaptureViewModel;
 
   cv.Mat? _logoTemplate;
   cv.Mat? _flagTemplate;
@@ -36,6 +61,7 @@ class DetectionViewModel extends ChangeNotifier {
   void setSide(CardSide side) {
     _currentSide = side;
     _stabilizer.resetAll();
+    _stabilityTracker.reset();
     repository.resetTracking();
     notifyListeners();
   }
@@ -80,6 +106,13 @@ class DetectionViewModel extends ChangeNotifier {
 
       if (!document.isDetected || document.quad == null) {
         _stabilizer.resetAll();
+        _stabilityTracker.reset();
+        autocaptureViewModel?.onFrame(const QualityReport(
+          quadFound: false,
+          sharpnessScore: 0,
+          brightness: BrightnessStatus.ok,
+          isStable: false,
+        ));
         if (_currentSide == CardSide.front) {
           _lastFrontResult = CardAnalysisResult.none();
         } else {
@@ -90,6 +123,17 @@ class DetectionViewModel extends ChangeNotifier {
       }
 
       warped = repository.warpDocument(mat, document.quad!);
+
+      // Step 3: quality checks + autocapture. Runs on the warped card so
+      // the sharpness/brightness scores are of the document itself, not
+      // whatever's in the background.
+      _stabilityTracker.update(document.quad!.toOffsets());
+      autocaptureViewModel?.onFrame(QualityReport(
+        quadFound: true,
+        sharpnessScore: _blurDetector.sharpnessScore(warped),
+        brightness: _brightnessDetector.classify(warped),
+        isStable: _stabilityTracker.isStable,
+      ));
 
       if (_currentSide == CardSide.front) {
         _analyzeFront(document, warped);
@@ -108,6 +152,18 @@ class DetectionViewModel extends ChangeNotifier {
       _busy = false;
     }
   }
+
+  /// Converts the detected quad's 4 corners to [Offset]s for
+  /// [StabilityTracker].
+  ///
+  /// NOTE: written without seeing `detected_document.dart`, so the exact
+  /// static type of `document.quad` is a guess - this assumes it's an
+  /// iterable of 4 points that each expose `.x` / `.y` (true for both
+  /// `cv.Point` and `cv.Point2f` in opencv_dart). If `quad` is some other
+  /// shape (e.g. a custom `Quad` class with named corners instead of a
+  /// list), this is the one place to adjust - share `detected_document.dart`
+  /// if you'd rather I match it exactly.
+  
 
   void _analyzeFront(DetectedDocument document, cv.Mat warped) {
     final (photo, faceBox) = repository.detectPhoto(warped);

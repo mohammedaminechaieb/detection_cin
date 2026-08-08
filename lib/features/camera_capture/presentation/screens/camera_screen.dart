@@ -4,7 +4,9 @@ import 'package:provider/provider.dart';
 import '../viewmodels/camera_viewmodel.dart';
 import '../widgets/camera_overlay.dart';
 import '../../../document_detection/presentation/viewmodels/detection_viewmodel.dart';
+import '../../../autocapture/presentation/viewmodels/autocapture_viewmodel.dart';
 import '../../../document_detection/domain/entities/detected_document.dart';
+import '../../../autocapture/domain/entities/capture_state.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -83,6 +85,21 @@ class _CameraScreenState extends State<CameraScreen> {
                   ),
 
                   Positioned(
+                    top: 40,
+                    left: 0,
+                    right: 0,
+                    child: Consumer<AutocaptureViewModel>(
+                      builder: (context, autocaptureViewModel, _) {
+                        return _AutocaptureStatusBanner(
+                          state: autocaptureViewModel.state,
+                          issues: autocaptureViewModel.issues,
+                          holdProgress: autocaptureViewModel.holdProgress,
+                        );
+                      },
+                    ),
+                  ),
+
+                  Positioned(
                     bottom: 20,
                     left: 0,
                     right: 0,
@@ -109,6 +126,89 @@ class _CameraScreenState extends State<CameraScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Bandeau d'état de l'étape 3 : "recherche la carte" / raison précise
+/// d'un échec qualité / compte à rebours pendant la stabilisation.
+/// Reste bloqué sur "Placez la carte dans le cadre" tant que
+/// `DetectionViewModel.onFrame` n'appelle pas encore
+/// `autocaptureViewModel.onFrame(report)` - c'est attendu jusqu'au
+/// prochain patch de detection_viewmodel.dart.
+class _AutocaptureStatusBanner extends StatelessWidget {
+  final CaptureState state;
+  final QualityIssues issues;
+  final double holdProgress;
+
+  const _AutocaptureStatusBanner({
+    required this.state,
+    required this.issues,
+    required this.holdProgress,
+  });
+
+  String get _label {
+    switch (state) {
+      case CaptureState.searching:
+        return 'Placez la carte dans le cadre';
+      case CaptureState.poorQuality:
+        if (issues.tooBlurry) return 'Image floue';
+        if (issues.tooDark) return 'Trop sombre';
+        if (issues.tooBright) return 'Trop lumineux';
+        if (issues.unstable) return 'Tenez stable';
+        return 'Ajustez la position';
+      case CaptureState.holding:
+        return 'Ne bougez plus...';
+      case CaptureState.triggerCapture:
+      case CaptureState.captured:
+        return 'Capturé !';
+    }
+  }
+
+  Color get _color {
+    switch (state) {
+      case CaptureState.holding:
+      case CaptureState.triggerCapture:
+      case CaptureState.captured:
+        return Colors.green;
+      case CaptureState.poorQuality:
+        return Colors.red;
+      case CaptureState.searching:
+        return Colors.white;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: _color, width: 1.5),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _label,
+              style: TextStyle(color: _color, fontWeight: FontWeight.w600),
+            ),
+            if (state == CaptureState.holding) ...[
+              const SizedBox(height: 6),
+              SizedBox(
+                width: 120,
+                child: LinearProgressIndicator(
+                  value: holdProgress,
+                  color: Colors.green,
+                  backgroundColor: Colors.white24,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
