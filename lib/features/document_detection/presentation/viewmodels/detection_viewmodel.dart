@@ -1,5 +1,3 @@
-import 'dart:ui' show Offset;
-
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:opencv_dart/opencv_dart.dart' as cv;
@@ -10,6 +8,8 @@ import '../../../image_quality/data/datasources/detectors/blur_detector.dart';
 import '../../../image_quality/data/datasources/detectors/brightness_detector.dart';
 import '../../../image_quality/data/datasources/detectors/stability_tracker.dart';
 import '../../domain/entities/detected_document.dart';
+import '../../domain/usecases/detect_back_orientation.dart';
+import '../../../autocapture/domain/entities/capture_state.dart';
 import '../../../autocapture/domain/entities/quality_report.dart';
 import '../../domain/repositories/detection_repository.dart';
 import '../../../autocapture/presentation/viewmodels/autocapture_viewmodel.dart';
@@ -29,12 +29,14 @@ class DetectionViewModel extends ChangeNotifier {
     BlurDetector? blurDetector,
     BrightnessDetector? brightnessDetector,
     StabilityTracker? stabilityTracker,
+    DetectBackOrientation? detectBackOrientation,
     this.autocaptureViewModel,
   })  : _imageConverter = imageConverter ?? const CameraImageConverter(),
         _stabilizer = stabilizer ?? DetectionStabilizer(),
         _blurDetector = blurDetector ?? const BlurDetector(),
         _brightnessDetector = brightnessDetector ?? const BrightnessDetector(),
-        _stabilityTracker = stabilityTracker ?? StabilityTracker();
+        _stabilityTracker = stabilityTracker ?? StabilityTracker(),
+        _detectBackOrientation = detectBackOrientation ?? DetectBackOrientation(repository);
 
   final DetectionRepository repository;
   final CameraImageConverter _imageConverter;
@@ -42,10 +44,17 @@ class DetectionViewModel extends ChangeNotifier {
   final BlurDetector _blurDetector;
   final BrightnessDetector _brightnessDetector;
   final StabilityTracker _stabilityTracker;
+  final DetectBackOrientation _detectBackOrientation;
 
   /// Optional - if provided, [onFrame] feeds it a [QualityReport] every
   /// analyzed frame so it can drive the Step 3 autocapture state machine.
   final AutocaptureViewModel? autocaptureViewModel;
+
+  /// Fired exactly once per capture cycle, the frame [autocaptureViewModel]
+  /// transitions into [CaptureState.captured] - carries the PNG-encoded
+  /// warped card for that side. `null` if no [autocaptureViewModel] was
+  /// provided (nothing will ever fire).
+  void Function(Uint8List pngBytes, CardSide side)? onCardCaptured;
 
   cv.Mat? _logoTemplate;
   cv.Mat? _flagTemplate;
@@ -112,6 +121,7 @@ class DetectionViewModel extends ChangeNotifier {
           sharpnessScore: 0,
           brightness: BrightnessStatus.ok,
           isStable: false,
+          contentMatched: false,
         ));
         if (_currentSide == CardSide.front) {
           _lastFrontResult = CardAnalysisResult.none();
@@ -124,46 +134,56 @@ class DetectionViewModel extends ChangeNotifier {
 
       warped = repository.warpDocument(mat, document.quad!);
 
-      // Step 3: quality checks + autocapture. Runs on the warped card so
-      // the sharpness/brightness scores are of the document itself, not
-      // whatever's in the background.
-      _stabilityTracker.update(document.quad!.toOffsets());
-      autocaptureViewModel?.onFrame(QualityReport(
-        quadFound: true,
-        sharpnessScore: _blurDetector.sharpnessScore(warped),
-        brightness: _brightnessDetector.classify(warped),
-        isStable: _stabilityTracker.isStable,
-      ));
-
       if (_currentSide == CardSide.front) {
         _analyzeFront(document, warped);
       } else {
         _analyzeBack(document, warped);
       }
 
+      final contentMatched = _currentSide == CardSide.front
+          ? (_lastFrontResult.logoFound && _lastFrontResult.flagFound)
+          : (_lastBackResult.barcodeFound &&
+              _lastBackResult.fingerprintFound &&
+              _lastBackResult.separationLineFound);
+
+      _stabilityTracker.update(document.quad!.toOffsets());
+      final report = QualityReport(
+        quadFound: true,
+        sharpnessScore: _blurDetector.sharpnessScore(warped),
+        brightness: _brightnessDetector.classify(warped),
+        isStable: _stabilityTracker.isStable,
+        contentMatched: contentMatched,
+      );
+
+      final wasCaptured = autocaptureViewModel?.state == CaptureState.captured;
+      autocaptureViewModel?.onFrame(report);
+      final justCaptured = !wasCaptured && autocaptureViewModel?.state == CaptureState.captured;
+      if (justCaptured) {
+        // The saved image must be upright, not just cropped - `warped` is
+        // only perspective-corrected, not rotation-corrected. Front already
+        // knows its rotation cheaply (from face detection, done above in
+        // `_analyzeFront`); back has no face to anchor on, so this runs the
+        // one-time 4-rotation search instead (see `DetectBackOrientation` -
+        // deliberately NOT run every frame, only here at capture time).
+        final rotationDegrees = _currentSide == CardSide.front
+            ? _lastFrontResult.photo.rotationDegrees
+            : _detectBackOrientation(warped).$1;
+        final finalImage = repository.applyRotation(warped, rotationDegrees);
+        onCardCaptured?.call(repository.encodeToPng(finalImage), _currentSide);
+        if (!identical(finalImage, warped)) {
+          finalImage.dispose();
+        }
+      }
+
       notifyListeners();
     } catch (e) {
       debugPrint('Erreur detection frame: $e');
     } finally {
-      // `warped` and `mat` are distinct Mats (warpDocument always allocates
-      // a new one), so disposing both here is always safe.
       warped?.dispose();
       mat?.dispose();
       _busy = false;
     }
   }
-
-  /// Converts the detected quad's 4 corners to [Offset]s for
-  /// [StabilityTracker].
-  ///
-  /// NOTE: written without seeing `detected_document.dart`, so the exact
-  /// static type of `document.quad` is a guess - this assumes it's an
-  /// iterable of 4 points that each expose `.x` / `.y` (true for both
-  /// `cv.Point` and `cv.Point2f` in opencv_dart). If `quad` is some other
-  /// shape (e.g. a custom `Quad` class with named corners instead of a
-  /// list), this is the one place to adjust - share `detected_document.dart`
-  /// if you'd rather I match it exactly.
-  
 
   void _analyzeFront(DetectedDocument document, cv.Mat warped) {
     final (photo, faceBox) = repository.detectPhoto(warped);
@@ -185,10 +205,6 @@ class DetectionViewModel extends ChangeNotifier {
       flagScore = score;
     }
 
-    // applyRotation returns the same Mat instance (not a copy) when no
-    // rotation is needed, so only dispose `oriented` when it's a distinct
-    // Mat - otherwise this would double-free `warped`, which the caller
-    // (onFrame) also disposes.
     if (!identical(oriented, warped)) {
       oriented.dispose();
     }

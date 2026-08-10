@@ -50,4 +50,18 @@ class DetectionRepositoryImpl implements DetectionRepository {
   @override
   (bool, (int, int, int, int)?, double) detectSeparationLine(cv.Mat orientedCard) =>
       dataSource.detectSeparationLine(orientedCard);
+  // ASSUMPTION (unverified against the installed opencv_dart version):
+  // `cv.imencode` returns a `(bool success, Uint8List bytes)` tuple, mirroring
+  // `cv.imdecode` already used in template_matcher.dart. If `flutter analyze`
+  // flags this call, check the actual signature in
+  // `.dart_tool/.../opencv_dart/lib/src/imgcodecs/imgcodecs.dart` and adjust -
+  // it may return just `Uint8List`, or take a `params` argument.
+  @override
+  Uint8List encodeToPng(cv.Mat image) {
+    final (success, bytes) = cv.imencode('.png', image);
+    if (!success) {
+      throw StateError('Échec de l\'encodage PNG de la carte capturée.');
+    }
+    return bytes;
+  }
 }

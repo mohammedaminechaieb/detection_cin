@@ -18,4 +18,7 @@ abstract class DetectionRepository {
   (bool, double) detectBarcodePresence(cv.Mat orientedCard);
   (bool, double) detectFingerprintPresence(cv.Mat orientedCard);
   (bool, (int, int, int, int)?, double) detectSeparationLine(cv.Mat orientedCard);
+  /// Encode [image] en PNG pour sauvegarde/affichage (ex. après une
+  /// capture validée par l'autocapture). Ne modifie ni ne libère [image].
+  Uint8List encodeToPng(cv.Mat image);
 }
