@@ -31,6 +31,7 @@ class QualityIssues {
     this.tooDark = false,
     this.tooBright = false,
     this.unstable = false,
+    this.contentMismatch = false,
   });
 
   final bool tooBlurry;
@@ -38,7 +39,12 @@ class QualityIssues {
   final bool tooBright;
   final bool unstable;
 
-  bool get hasAny => tooBlurry || tooDark || tooBright || unstable;
+  /// Le quad et l'image sont bons, mais les éléments de contenu
+  /// attendus pour ce côté (logo/drapeau au recto, code-barres/
+  /// empreinte/ligne au verso) n'ont pas tous été détectés.
+  final bool contentMismatch;
+
+  bool get hasAny => tooBlurry || tooDark || tooBright || unstable || contentMismatch;
 
   @override
   bool operator ==(Object other) =>
@@ -47,8 +53,9 @@ class QualityIssues {
           tooBlurry == other.tooBlurry &&
           tooDark == other.tooDark &&
           tooBright == other.tooBright &&
-          unstable == other.unstable;
+          unstable == other.unstable &&
+          contentMismatch == other.contentMismatch;
 
   @override
-  int get hashCode => Object.hash(tooBlurry, tooDark, tooBright, unstable);
+  int get hashCode => Object.hash(tooBlurry, tooDark, tooBright, unstable, contentMismatch);
 }

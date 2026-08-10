@@ -11,6 +11,7 @@ class QualityReport {
     required this.sharpnessScore,
     required this.brightness,
     required this.isStable,
+    required this.contentMatched,
   });
 
   /// Un quad a-t-il été trouvé du tout cette frame. Si faux, les
@@ -22,4 +23,12 @@ class QualityReport {
 
   /// Résultat de `StabilityTracker.isStable` sur cette frame.
   final bool isStable;
+
+  /// Les contrôles de contenu propres au côté actuel ont-ils tous
+  /// réussi (logo + drapeau pour le recto, code-barres + empreinte +
+  /// ligne de séparation pour le verso). Calculé par
+  /// `DetectionViewModel` à partir de `CardAnalysisResult` /
+  /// `BackAnalysisResult` - ce report ne connaît pas le détail des
+  /// détecteurs de contenu, juste le résultat agrégé.
+  final bool contentMatched;
 }

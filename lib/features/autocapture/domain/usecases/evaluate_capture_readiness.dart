@@ -24,6 +24,7 @@ class EvaluateCaptureReadiness {
       tooDark: report.brightness == BrightnessStatus.tooDark,
       tooBright: report.brightness == BrightnessStatus.tooBright,
       unstable: !report.isStable,
+      contentMismatch: !report.contentMatched,
     );
   }
 }
