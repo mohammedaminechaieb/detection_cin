@@ -11,7 +11,7 @@ import '../../domain/usecases/evaluate_capture_readiness.dart';
 class AutocaptureViewModel extends ChangeNotifier {
   AutocaptureViewModel({
     EvaluateCaptureReadiness? evaluateReadiness,
-    this.requiredGoodFrames = 10,
+    this.requiredGoodFrames = 5,
     this.onCaptureReady,
   }) : _evaluateReadiness = evaluateReadiness ?? const EvaluateCaptureReadiness();
 

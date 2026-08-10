@@ -7,8 +7,8 @@ import 'dart:ui';
 /// ni caméra, donc testable en isolation.
 class StabilityTracker {
   StabilityTracker({
-    this.maxCornerDrift = 6.0,
-    this.requiredStableFrames = 8,
+    this.maxCornerDrift = 8.0,
+    this.requiredStableFrames = 4,
   });
 
   /// Déplacement moyen max (en pixels, dans le même repère que les
