@@ -7,8 +7,11 @@ import 'features/camera_capture/presentation/viewmodels/camera_viewmodel.dart';
 import 'features/camera_capture/presentation/screens/camera_screen.dart';
 import 'features/document_detection/data/datasources/document_detection_datasource.dart';
 import 'features/document_detection/data/repositories/detection_repository_impl.dart';
+import 'features/document_detection/domain/entities/detected_document.dart' show CardSide;
 import 'features/document_detection/presentation/viewmodels/detection_viewmodel.dart';
 import 'features/autocapture/presentation/viewmodels/autocapture_viewmodel.dart';
+import 'features/result_preview/presentation/viewmodels/captured_cards_viewmodel.dart';
+import 'features/image_postprocessing/presentation/viewmodels/postprocessing_viewmodel.dart';
 
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
@@ -20,6 +23,8 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   DetectionViewModel? _detectionViewModel;
   AutocaptureViewModel? _autocaptureViewModel;
+  CapturedCardsViewModel? _capturedCardsViewModel;
+  PostprocessingViewModel? _postprocessingViewModel;
 
   @override
   void initState() {
@@ -27,9 +32,6 @@ class _MyAppState extends State<MyApp> {
     _bootstrap();
   }
 
-  // Charge le cascade + les templates une seule fois au demarrage, avant
-  // d'assembler la chaine de detection -- deplace ici depuis main.dart pour
-  // que main.dart reste minimal (juste runApp).
   Future<void> _bootstrap() async {
     final cascadePath = await loadCascadeAssetPath();
     final logoData = await rootBundle.load('assets/templates/logo.png');
@@ -44,6 +46,9 @@ class _MyAppState extends State<MyApp> {
       },
     );
 
+    final capturedCardsViewModel = CapturedCardsViewModel();
+    final postprocessingViewModel = PostprocessingViewModel();
+
     final viewModel = DetectionViewModel(
       detectionRepository,
       autocaptureViewModel: autocaptureViewModel,
@@ -53,17 +58,37 @@ class _MyAppState extends State<MyApp> {
       flagBytes: flagData.buffer.asUint8List(),
     );
 
+    // When a side is captured: store its bytes, then either advance to the
+    // back (front just captured) or kick off postprocessing (back just
+    // captured - CameraScreen picks up `capturedCardsViewModel.isComplete`
+    // and shows the preview screen, which reads `postprocessingViewModel`
+    // for the enhanced images + print page once ready).
+    viewModel.onCardCaptured = (bytes, side) {
+      capturedCardsViewModel.setCapture(side, bytes);
+      if (side == CardSide.front) {
+        autocaptureViewModel.reset();
+        viewModel.setSide(CardSide.back);
+      } else {
+        final card = capturedCardsViewModel.card;
+        postprocessingViewModel.process(card.front!, bytes);
+      }
+    };
+
     if (!mounted) return;
     setState(() {
       _detectionViewModel = viewModel;
       _autocaptureViewModel = autocaptureViewModel;
+      _capturedCardsViewModel = capturedCardsViewModel;
+      _postprocessingViewModel = postprocessingViewModel;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // Ecran de chargement le temps que le cascade + les templates soient prets
-    if (_detectionViewModel == null || _autocaptureViewModel == null) {
+    if (_detectionViewModel == null ||
+        _autocaptureViewModel == null ||
+        _capturedCardsViewModel == null ||
+        _postprocessingViewModel == null) {
       return const MaterialApp(
         debugShowCheckedModeBanner: false,
         home: Scaffold(
@@ -82,6 +107,12 @@ class _MyAppState extends State<MyApp> {
         ),
         ChangeNotifierProvider.value(
           value: _autocaptureViewModel!,
+        ),
+        ChangeNotifierProvider.value(
+          value: _capturedCardsViewModel!,
+        ),
+        ChangeNotifierProvider.value(
+          value: _postprocessingViewModel!,
         ),
       ],
       child: MaterialApp(

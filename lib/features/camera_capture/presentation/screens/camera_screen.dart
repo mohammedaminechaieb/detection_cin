@@ -7,6 +7,9 @@ import '../../../document_detection/presentation/viewmodels/detection_viewmodel.
 import '../../../autocapture/presentation/viewmodels/autocapture_viewmodel.dart';
 import '../../../document_detection/domain/entities/detected_document.dart';
 import '../../../autocapture/domain/entities/capture_state.dart';
+import '../../../result_preview/presentation/viewmodels/captured_cards_viewmodel.dart';
+import '../../../result_preview/presentation/screens/result_preview_screen.dart';
+import '../../../image_postprocessing/presentation/viewmodels/postprocessing_viewmodel.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -32,12 +35,41 @@ class _CameraScreenState extends State<CameraScreen> {
         _streamedController = controller;
       }
     });
+    context.read<CapturedCardsViewModel>().addListener(_maybeShowPreview);
   }
 
   @override
   void dispose() {
     _streamedController?.stopImageStream();
+    context.read<CapturedCardsViewModel>().removeListener(_maybeShowPreview);
     super.dispose();
+  }
+
+  void _maybeShowPreview() {
+    final capturedCardsViewModel = context.read<CapturedCardsViewModel>();
+    if (!capturedCardsViewModel.isComplete) return;
+    if (!mounted || Navigator.of(context).canPop()) return;
+
+    final card = capturedCardsViewModel.card;
+    if (card.front == null || card.back == null) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ResultPreviewScreen(
+          onRetake: () {
+            capturedCardsViewModel.reset();
+            context.read<PostprocessingViewModel>().reset();
+            context.read<AutocaptureViewModel>().reset();
+            context.read<DetectionViewModel>().setSide(CardSide.front);
+            Navigator.of(context).pop();
+          },
+          onConfirm: () {
+            // TODO next step: persist/upload the validated capture.
+            Navigator.of(context).pop();
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -131,12 +163,6 @@ class _CameraScreenState extends State<CameraScreen> {
   }
 }
 
-/// Bandeau d'état de l'étape 3 : "recherche la carte" / raison précise
-/// d'un échec qualité / compte à rebours pendant la stabilisation.
-/// Reste bloqué sur "Placez la carte dans le cadre" tant que
-/// `DetectionViewModel.onFrame` n'appelle pas encore
-/// `autocaptureViewModel.onFrame(report)` - c'est attendu jusqu'au
-/// prochain patch de detection_viewmodel.dart.
 class _AutocaptureStatusBanner extends StatelessWidget {
   final CaptureState state;
   final QualityIssues issues;
@@ -157,6 +183,7 @@ class _AutocaptureStatusBanner extends StatelessWidget {
         if (issues.tooDark) return 'Trop sombre';
         if (issues.tooBright) return 'Trop lumineux';
         if (issues.unstable) return 'Tenez stable';
+        if (issues.contentMismatch) return 'Élément non détecté';
         return 'Ajustez la position';
       case CaptureState.holding:
         return 'Ne bougez plus...';
