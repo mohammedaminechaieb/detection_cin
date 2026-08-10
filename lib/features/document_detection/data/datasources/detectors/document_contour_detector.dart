@@ -228,7 +228,21 @@ class DocumentContourDetector {
     final gray = cv.cvtColor(image, cv.COLOR_BGR2GRAY);
     final blurred = cv.gaussianBlur(gray, (3, 3), 0);
     gray.dispose();
-    return blurred;
+
+    // Low-contrast scenes (light card on a light/white surface) were
+    // failing to produce ANY candidate at this coarse full-frame stage -
+    // which gates everything, since `_detectFullFrame` aborts immediately
+    // if this pass finds nothing. `_preprocessGray` (the refined,
+    // per-region pass used once a quad is already tracked) already
+    // applies CLAHE and handles low contrast fine - but it never got a
+    // chance to run, because tracking was never established in the first
+    // place. Adding CLAHE here too (skipping the heavier bilateral filter
+    // to keep this pass cheap) fixes that gate.
+    final clahe = cv.createCLAHE(clipLimit: 2.5, tileGridSize: (8, 8));
+    final result = clahe.apply(blurred);
+    blurred.dispose();
+
+    return result;
   }
 
   /// Runs up to four candidate-generation passes (Canny, a looser Canny,
