@@ -64,4 +64,7 @@ class DetectionRepositoryImpl implements DetectionRepository {
     }
     return bytes;
   }
+
+  @override
+  cv.Mat decodePng(Uint8List pngBytes) => cv.imdecode(pngBytes, cv.IMREAD_COLOR);
 }

@@ -3,8 +3,11 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../document_detection/domain/entities/detected_document.dart' show CardSide;
+import '../../../document_detection/presentation/viewmodels/detection_viewmodel.dart';
 import '../../../image_postprocessing/presentation/viewmodels/postprocessing_viewmodel.dart';
 import '../viewmodels/captured_cards_viewmodel.dart';
+import 'recrop_screen.dart';
 
 class ResultPreviewScreen extends StatelessWidget {
   const ResultPreviewScreen({
@@ -15,6 +18,33 @@ class ResultPreviewScreen extends StatelessWidget {
 
   final VoidCallback onRetake;
   final VoidCallback onConfirm;
+
+  Future<void> _recrop(BuildContext context, CardSide side, Uint8List currentBytes) async {
+    final repository = context.read<DetectionViewModel>().repository;
+    final newBytes = await Navigator.of(context).push<Uint8List>(
+      MaterialPageRoute(
+        builder: (_) => RecropScreen(
+          imageBytes: currentBytes,
+          repository: repository,
+          label: side == CardSide.front ? 'Recto' : 'Verso',
+        ),
+      ),
+    );
+    if (newBytes == null || !context.mounted) return;
+
+    final capturedCardsViewModel = context.read<CapturedCardsViewModel>();
+    capturedCardsViewModel.setCapture(side, newBytes);
+    _reprocess(context);
+  }
+
+  /// Re-runs postprocessing with whatever `EnhancementSettings` are
+  /// currently active - needs both sides, so no-ops until both exist.
+  void _reprocess(BuildContext context) {
+    final capturedCardsViewModel = context.read<CapturedCardsViewModel>();
+    final card = capturedCardsViewModel.card;
+    if (card.front == null || card.back == null) return;
+    context.read<PostprocessingViewModel>().process(card.front!, card.back!);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,12 +70,14 @@ class ResultPreviewScreen extends StatelessWidget {
                         _CardImage(
                           label: 'Recto',
                           bytes: processed?.front ?? card.front!,
+                          onRecrop: () => _recrop(context, CardSide.front, card.front!),
                         ),
                       if (card.back != null) ...[
                         const SizedBox(height: 16),
                         _CardImage(
                           label: 'Verso',
                           bytes: processed?.back ?? card.back!,
+                          onRecrop: () => _recrop(context, CardSide.back, card.back!),
                         ),
                       ],
                       const SizedBox(height: 16),
@@ -119,17 +151,39 @@ class _PrintPageSection extends StatelessWidget {
 }
 
 class _CardImage extends StatelessWidget {
-  const _CardImage({required this.label, required this.bytes});
+  const _CardImage({required this.label, required this.bytes, this.onRecrop});
 
   final String label;
   final Uint8List bytes;
+
+  /// If non-null, shows a "Recadrer" button under the image. Omitted for
+  /// the composed print-page preview, which isn't something you'd recrop
+  /// directly (it's derived from the front/back, which you'd recrop
+  /// instead).
+  final VoidCallback? onRecrop;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(color: Colors.white70)),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.white70)),
+            if (onRecrop != null)
+              TextButton.icon(
+                onPressed: onRecrop,
+                icon: const Icon(Icons.crop, size: 18),
+                label: const Text('Recadrer'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  minimumSize: const Size(0, 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+              ),
+          ],
+        ),
         const SizedBox(height: 8),
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
