@@ -1,50 +1,43 @@
 import 'package:camera/camera.dart';
+import 'package:detection_cin/features/image_quality/data/datasources/detectors/brightness_detector.dart';
 import 'package:flutter/foundation.dart';
-import 'package:opencv_dart/opencv_dart.dart' as cv;
 
-import '../../../../shared/utils/camera_image_converter.dart';
-import '../../../../shared/utils/detection_stabilizer.dart';
-import '../../../image_quality/data/datasources/detectors/blur_detector.dart';
-import '../../../image_quality/data/datasources/detectors/brightness_detector.dart';
-import '../../../image_quality/data/datasources/detectors/stability_tracker.dart';
+import '../../data/datasources/detectors/detection_isolate_worker.dart';
+import '../../data/datasources/isolate_frame_messages.dart';
 import '../../domain/entities/detected_document.dart';
-import '../../domain/usecases/detect_back_orientation.dart';
 import '../../../autocapture/domain/entities/capture_state.dart';
 import '../../../autocapture/domain/entities/quality_report.dart';
 import '../../domain/repositories/detection_repository.dart';
 import '../../../autocapture/presentation/viewmodels/autocapture_viewmodel.dart';
+import '../../../image_quality/data/datasources/detectors/stability_tracker.dart';
 
-/// Drives the live camera analysis loop: converts each camera frame to a
-/// Mat, runs it through [DetectionRepository], and exposes stabilized
-/// detection state for the UI to render.
+/// Drives the live camera analysis loop.
 ///
-/// Since Step 3, it also runs the quality checks (sharpness, brightness,
-/// quad stability) each frame and forwards a [QualityReport] to
-/// [autocaptureViewModel], if one was provided.
+/// The actual OpenCV work (frame conversion, contour detection, content
+/// checks) runs on a persistent background isolate owned by
+/// [DetectionIsolateWorker] - this class's job is just to extract plain
+/// data from each [CameraImage], hand it to the worker, and turn the
+/// plain result back into UI-facing state. This used to all run
+/// synchronously on the platform thread (the same thread driving camera
+/// preview rendering), which was the actual cause of the camera lag: a
+/// slow detection pass blocked preview rendering for exactly as long as
+/// it took. See `DetectionIsolateWorker`'s class doc for why a plain
+/// `compute()` per frame wasn't viable here instead.
+///
+/// [StabilityTracker] (quad-position jitter, not to be confused with
+/// [DetectionStabilizer] inside the worker, which smooths individual
+/// boolean signals like "logo found") stays here on the main isolate: it
+/// only needs the already-plain [CardQuad] from each result, so there's
+/// no reason to add it to the worker's surface.
 class DetectionViewModel extends ChangeNotifier {
   DetectionViewModel(
     this.repository, {
-    CameraImageConverter? imageConverter,
-    DetectionStabilizer? stabilizer,
-    BlurDetector? blurDetector,
-    BrightnessDetector? brightnessDetector,
     StabilityTracker? stabilityTracker,
-    DetectBackOrientation? detectBackOrientation,
     this.autocaptureViewModel,
-  })  : _imageConverter = imageConverter ?? const CameraImageConverter(),
-        _stabilizer = stabilizer ?? DetectionStabilizer(),
-        _blurDetector = blurDetector ?? const BlurDetector(),
-        _brightnessDetector = brightnessDetector ?? const BrightnessDetector(),
-        _stabilityTracker = stabilityTracker ?? StabilityTracker(),
-        _detectBackOrientation = detectBackOrientation ?? DetectBackOrientation(repository);
+  }) : _stabilityTracker = stabilityTracker ?? StabilityTracker();
 
   final DetectionRepository repository;
-  final CameraImageConverter _imageConverter;
-  final DetectionStabilizer _stabilizer;
-  final BlurDetector _blurDetector;
-  final BrightnessDetector _brightnessDetector;
   final StabilityTracker _stabilityTracker;
-  final DetectBackOrientation _detectBackOrientation;
 
   /// Optional - if provided, [onFrame] feeds it a [QualityReport] every
   /// analyzed frame so it can drive the Step 3 autocapture state machine.
@@ -56,22 +49,49 @@ class DetectionViewModel extends ChangeNotifier {
   /// provided (nothing will ever fire).
   void Function(Uint8List pngBytes, CardSide side)? onCardCaptured;
 
-  cv.Mat? _logoTemplate;
-  cv.Mat? _flagTemplate;
+  DetectionIsolateWorker? _worker;
 
-  void loadTemplates({required Uint8List logoBytes, required Uint8List flagBytes}) {
-    _logoTemplate = repository.loadTemplateFromBytes(logoBytes);
-    _flagTemplate = repository.loadTemplateFromBytes(flagBytes);
+  /// Must be called once (and awaited) before [onFrame] is used - spawns
+  /// the background isolate and loads the cascade/templates into it.
+  /// Mirrors what used to happen synchronously in this class's
+  /// constructor + `loadTemplates`.
+  Future<void> initialize({
+    required String cascadePath,
+    required Uint8List logoBytes,
+    required Uint8List flagBytes,
+  }) async {
+    _worker = await DetectionIsolateWorker.spawn(
+      cascadePath: cascadePath,
+      logoBytes: logoBytes,
+      flagBytes: flagBytes,
+    );
   }
 
   CardSide _currentSide = CardSide.front;
   CardSide get currentSide => _currentSide;
 
+  // Bumped on every `setSide` call. `onFrame` captures the generation a
+  // frame was sent under and compares it after the (async) worker
+  // round-trip - if `setSide` happened while that frame was in flight,
+  // the reply is discarded rather than applied under the wrong side
+  // (`result.frontResult`/`backResult` reflects whichever side the
+  // worker's `currentSide` was set to *when it processed that frame*,
+  // which is correct on the worker side, but could now disagree with
+  // this class's `_currentSide` by the time the reply arrives here).
+  int _sideGeneration = 0;
+
   void setSide(CardSide side) {
     _currentSide = side;
-    _stabilizer.resetAll();
+    _sideGeneration++;
     _stabilityTracker.reset();
-    repository.resetTracking();
+    _isBorderDetected = false;
+    _isFaceDetected = false;
+    _isLogoDetected = false;
+    _isFlagDetected = false;
+    _isBarcodeDetected = false;
+    _isFingerprintDetected = false;
+    _isSeparationLineDetected = false;
+    _worker?.setSide(side);
     notifyListeners();
   }
 
@@ -80,42 +100,76 @@ class DetectionViewModel extends ChangeNotifier {
   CardAnalysisResult get lastFrontResult => _lastFrontResult;
   BackAnalysisResult get lastBackResult => _lastBackResult;
 
-  bool get isBorderDetected => _stabilizer.isStable('border');
-  bool get isFaceDetected => _stabilizer.isStable('face');
-  bool get isLogoDetected => _stabilizer.isStable('logo');
-  bool get isFlagDetected => _stabilizer.isStable('flag');
+  // Mirrors the worker's stabilized flags from the most recent result -
+  // see `IsolateFrameResult`.
+  bool _isBorderDetected = false;
+  bool _isFaceDetected = false;
+  bool _isLogoDetected = false;
+  bool _isFlagDetected = false;
+  bool _isBarcodeDetected = false;
+  bool _isFingerprintDetected = false;
+  bool _isSeparationLineDetected = false;
 
-  bool get isBarcodeDetected => _stabilizer.isStable('barcode');
-  bool get isFingerprintDetected => _stabilizer.isStable('fingerprint');
-  bool get isSeparationLineDetected => _stabilizer.isStable('separation_line');
+  bool get isBorderDetected => _isBorderDetected;
+  bool get isFaceDetected => _isFaceDetected;
+  bool get isLogoDetected => _isLogoDetected;
+  bool get isFlagDetected => _isFlagDetected;
+  bool get isBarcodeDetected => _isBarcodeDetected;
+  bool get isFingerprintDetected => _isFingerprintDetected;
+  bool get isSeparationLineDetected => _isSeparationLineDetected;
 
-  DateTime _lastAnalysis = DateTime.fromMillisecondsSinceEpoch(0);
-  static const _throttle = Duration(milliseconds: 350);
+  /// Fires after every analyzed frame with how long the worker took to
+  /// process it - round-trip isolate messaging time is not included,
+  /// only the worker's own processing (see `IsolateFrameResult.
+  /// processingMicros`), so this reflects actual OpenCV cost rather than
+  /// isolate communication overhead. Wire this to a debug overlay or
+  /// `debugPrint` when chasing performance.
+  void Function(Duration elapsed)? onFrameDuration;
+
+  /// Guards against overlapping frames the same way `_busy` did in the
+  /// old synchronous implementation - since `analyze` now means "sent to
+  /// the worker, awaiting a reply" rather than "running inline", this
+  /// naturally paces frames to however fast the worker can actually keep
+  /// up, without needing a separate wall-clock throttle.
   bool _busy = false;
 
-  /// Receives the Mat converted from each analyzed frame, for debug
-  /// preview overlays. The Mat is disposed as soon as [onFrame] finishes,
-  /// so implementations must use it synchronously and not retain it.
-  void Function(cv.Mat mat)? onDebugFrame;
-
-  void onFrame(CameraImage image) {
-    final now = DateTime.now();
-    if (_busy || now.difference(_lastAnalysis) < _throttle) return;
+  Future<void> onFrame(CameraImage image) async {
+    final worker = _worker;
+    if (worker == null || _busy) return;
 
     _busy = true;
-    _lastAnalysis = now;
-
-    cv.Mat? mat;
-    cv.Mat? warped;
+    final sentUnderGeneration = _sideGeneration;
     try {
-      mat = _imageConverter.toBgrMat(image);
-      onDebugFrame?.call(mat);
+      final frame = IsolateFrameInput.fromCameraImage(image);
+      final result = await worker.analyze(frame);
 
-      final document = repository.detectDocument(mat);
+      if (sentUnderGeneration != _sideGeneration) {
+        // `setSide` was called while this frame was in flight - discard
+        // rather than risk applying `result.frontResult`/`backResult`
+        // (populated for whichever side was active *when the worker
+        // processed it*) under a `_currentSide` that's since changed.
+        // `setSide` already reset the UI-facing flags/trackers, so there
+        // is nothing stale left to clean up here.
+        return;
+      }
 
-      if (!document.isDetected || document.quad == null) {
-        _stabilizer.resetAll();
+      onFrameDuration?.call(Duration(microseconds: result.processingMicros));
+
+      _isBorderDetected = result.isBorderDetected;
+      _isFaceDetected = result.isFaceDetected;
+      _isLogoDetected = result.isLogoDetected;
+      _isFlagDetected = result.isFlagDetected;
+      _isBarcodeDetected = result.isBarcodeDetected;
+      _isFingerprintDetected = result.isFingerprintDetected;
+      _isSeparationLineDetected = result.isSeparationLineDetected;
+
+      if (!result.document.isDetected || result.document.quad == null) {
         _stabilityTracker.reset();
+        if (_currentSide == CardSide.front) {
+          _lastFrontResult = CardAnalysisResult.none();
+        } else {
+          _lastBackResult = BackAnalysisResult.none();
+        }
         autocaptureViewModel?.onFrame(const QualityReport(
           quadFound: false,
           sharpnessScore: 0,
@@ -123,55 +177,42 @@ class DetectionViewModel extends ChangeNotifier {
           isStable: false,
           contentMatched: false,
         ));
-        if (_currentSide == CardSide.front) {
-          _lastFrontResult = CardAnalysisResult.none();
-        } else {
-          _lastBackResult = BackAnalysisResult.none();
-        }
         notifyListeners();
         return;
       }
 
-      warped = repository.warpDocument(mat, document.quad!);
-
       if (_currentSide == CardSide.front) {
-        _analyzeFront(document, warped);
+        _lastFrontResult = result.frontResult!;
       } else {
-        _analyzeBack(document, warped);
+        _lastBackResult = result.backResult!;
       }
 
-      final contentMatched = _currentSide == CardSide.front
-          ? (_lastFrontResult.logoFound && _lastFrontResult.flagFound)
-          : (_lastBackResult.barcodeFound &&
-              _lastBackResult.fingerprintFound &&
-              _lastBackResult.separationLineFound);
-
-      _stabilityTracker.update(document.quad!.toOffsets());
+      _stabilityTracker.update(result.document.quad!.toOffsets());
       final report = QualityReport(
         quadFound: true,
-        sharpnessScore: _blurDetector.sharpnessScore(warped),
-        brightness: _brightnessDetector.classify(warped),
+        sharpnessScore: result.sharpnessScore,
+        brightness: result.brightness,
         isStable: _stabilityTracker.isStable,
-        contentMatched: contentMatched,
+        contentMatched: result.contentMatched,
       );
 
       final wasCaptured = autocaptureViewModel?.state == CaptureState.captured;
       autocaptureViewModel?.onFrame(report);
       final justCaptured = !wasCaptured && autocaptureViewModel?.state == CaptureState.captured;
       if (justCaptured) {
-        // The saved image must be upright, not just cropped - `warped` is
-        // only perspective-corrected, not rotation-corrected. Front already
-        // knows its rotation cheaply (from face detection, done above in
-        // `_analyzeFront`); back has no face to anchor on, so this runs the
-        // one-time 4-rotation search instead (see `DetectBackOrientation` -
-        // deliberately NOT run every frame, only here at capture time).
-        final rotationDegrees = _currentSide == CardSide.front
-            ? _lastFrontResult.photo.rotationDegrees
-            : _detectBackOrientation(warped).$1;
-        final finalImage = repository.applyRotation(warped, rotationDegrees);
-        onCardCaptured?.call(repository.encodeToPng(finalImage), _currentSide);
-        if (!identical(finalImage, warped)) {
-          finalImage.dispose();
+        // Front already knows its rotation cheaply (from face detection,
+        // already computed as part of this frame's analysis); back has
+        // no face to anchor on, so pass `null` and let the worker run
+        // the one-time 4-rotation search inside `capture` instead (see
+        // `DetectBackOrientation` - still deliberately NOT run every
+        // frame, only on this explicit capture request).
+        final rotationDegrees =
+            _currentSide == CardSide.front ? _lastFrontResult.photo.rotationDegrees : null;
+        final captureResult = await worker.capture(
+          IsolateCaptureRequest(frame: frame, rotationDegrees: rotationDegrees),
+        );
+        if (captureResult.pngBytes != null && sentUnderGeneration == _sideGeneration) {
+          onCardCaptured?.call(captureResult.pngBytes!, _currentSide);
         }
       }
 
@@ -179,70 +220,13 @@ class DetectionViewModel extends ChangeNotifier {
     } catch (e) {
       debugPrint('Erreur detection frame: $e');
     } finally {
-      warped?.dispose();
-      mat?.dispose();
       _busy = false;
     }
   }
 
-  void _analyzeFront(DetectedDocument document, cv.Mat warped) {
-    final (photo, faceBox) = repository.detectPhoto(warped);
-    final oriented = repository.applyRotation(warped, photo.rotationDegrees);
-
-    var logoFound = false;
-    var logoScore = 0.0;
-    var flagFound = false;
-    var flagScore = 0.0;
-
-    if (_logoTemplate != null) {
-      final (found, score) = repository.detectLogo(oriented, _logoTemplate!);
-      logoFound = found;
-      logoScore = score;
-    }
-    if (_flagTemplate != null) {
-      final (found, score) = repository.detectFlag(oriented, _flagTemplate!);
-      flagFound = found;
-      flagScore = score;
-    }
-
-    if (!identical(oriented, warped)) {
-      oriented.dispose();
-    }
-
-    _lastFrontResult = CardAnalysisResult(
-      document: document,
-      photo: photo,
-      faceBox: faceBox,
-      logoFound: logoFound,
-      logoScore: logoScore,
-      flagFound: flagFound,
-      flagScore: flagScore,
-    );
-
-    _stabilizer.update('border', document.isDetected);
-    _stabilizer.update('face', photo.found);
-    _stabilizer.update('logo', logoFound);
-    _stabilizer.update('flag', flagFound);
-  }
-
-  void _analyzeBack(DetectedDocument document, cv.Mat warped) {
-    final (barcodeFound, barcodeScore) = repository.detectBarcodePresence(warped);
-    final (fingerprintFound, fingerprintScore) = repository.detectFingerprintPresence(warped);
-    final (lineFound, _, lineScore) = repository.detectSeparationLine(warped);
-
-    _lastBackResult = BackAnalysisResult(
-      document: document,
-      barcodeFound: barcodeFound,
-      barcodeScore: barcodeScore,
-      fingerprintFound: fingerprintFound,
-      fingerprintScore: fingerprintScore,
-      separationLineFound: lineFound,
-      separationLineScore: lineScore,
-    );
-
-    _stabilizer.update('border', document.isDetected);
-    _stabilizer.update('barcode', barcodeFound);
-    _stabilizer.update('fingerprint', fingerprintFound);
-    _stabilizer.update('separation_line', lineFound, framesToConfirm: 1);
+  @override
+  void dispose() {
+    _worker?.dispose();
+    super.dispose();
   }
 }
