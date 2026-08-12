@@ -255,8 +255,19 @@ class DocumentContourDetector {
     final blurred = cv.gaussianBlur(gray, (5, 5), 0);
 
     final median = _median(gray);
-    final lower = math.max(0, (_cannyLowerMedianFactor * median)).toDouble();
-    final upper = math.min(255, (_cannyUpperMedianFactor * median)).toDouble();
+    var lower = math.max(0, (_cannyLowerMedianFactor * median)).toDouble();
+    var upper = math.min(255, (_cannyUpperMedianFactor * median)).toDouble();
+
+    // Safety clamp independent of the median/mean computation above: on
+    // a very bright scene (light card, light background) even a
+    // correctly-computed median can sit high enough (180-220+) that
+    // `0.66x` alone is still too strict for the genuinely weak gradients
+    // such a scene produces. Capping `lower` keeps Canny from ever
+    // requiring more gradient strength than this, regardless of how
+    // bright the frame is. Similarly, floor `upper` so a very dark
+    // scene doesn't collapse the [lower, upper] window to near-nothing.
+    lower = math.min(lower, 90.0);
+    upper = math.max(upper, 60.0);
 
     final candidates = <_Candidate>[];
     final imgH = gray.rows;
@@ -372,7 +383,39 @@ class DocumentContourDetector {
   }
 
   double _median(cv.Mat gray) {
-    final (mean, _) = cv.meanStdDev(gray);
-    return mean.val1;
+    // NOTE: this used to call `cv.meanStdDev(gray)` and return the MEAN,
+    // mislabeled as median - that's a real bug, not just a naming slip.
+    // On a bright/white scene (light card on a light background), the
+    // mean is high (e.g. ~220/255), so `0.66x/1.33x` of it pushed the
+    // Canny thresholds up into a range so high that only very strong
+    // gradients survived - exactly the opposite of what a low-contrast
+    // light-on-light scene needs (weak gradients everywhere, by
+    // definition). That's why light-surface detection regressed instead
+    // of improving: the "adaptive" threshold was adapting the wrong way
+    // on bright scenes. A true median (via histogram) is far less
+    // sensitive to being dragged up by a mostly-bright frame than the
+    // mean is, and is also the statistic the "0.66x/1.33x" heuristic is
+    // actually defined against (see the common OpenCV auto-Canny recipe
+    // this was following).
+    final hist = cv.calcHist(
+      cv.VecMat.fromList([gray]),
+      cv.VecI32.fromList([0]),
+      cv.Mat.empty(),
+      cv.VecI32.fromList([256]),
+      cv.VecF32.fromList([0,256]),
+    );
+    final totalPixels = gray.rows * gray.cols;
+    final halfPixels = totalPixels / 2;
+
+    var cumulative = 0.0;
+    for (var bin = 0; bin < 256; bin++) {
+      cumulative += hist.at<double>(bin, 0);
+      if (cumulative >= halfPixels) {
+        hist.dispose();
+        return bin.toDouble();
+      }
+    }
+    hist.dispose();
+    return 128.0;
   }
 }

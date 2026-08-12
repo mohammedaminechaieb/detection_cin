@@ -36,13 +36,25 @@ class _MyAppState extends State<MyApp> {
     final cascadePath = await loadCascadeAssetPath();
     final logoData = await rootBundle.load('assets/templates/logo.png');
     final flagData = await rootBundle.load('assets/templates/flag.png');
+    final logoBytes = logoData.buffer.asUint8List();
+    final flagBytes = flagData.buffer.asUint8List();
 
+    // Still constructed on the main isolate, even though live frame
+    // analysis now happens inside `DetectionIsolateWorker` (a separate
+    // background isolate with its own copy of this same pipeline) - this
+    // instance is only used for the occasional, user-triggered recrop
+    // (see `RecropScreen`/`ResultPreviewScreen`), which is infrequent and
+    // cheap enough that running it here doesn't reintroduce the lag.
     final detectionDatasource = DocumentDetectionDataSource(cascadePath);
     final detectionRepository = DetectionRepositoryImpl(detectionDatasource);
 
     final autocaptureViewModel = AutocaptureViewModel(
       onCaptureReady: () {
-        // TODO next step: actually grab/save the still frame
+        // Grabbing/saving the still frame itself happens in
+        // DetectionViewModel.onFrame (the `justCaptured` check, once
+        // `autocaptureViewModel.state` flips to CaptureState.captured) -
+        // this callback only needs to exist as the state-machine signal
+        // AutocaptureViewModel fires; nothing else to do here.
       },
     );
 
@@ -53,9 +65,14 @@ class _MyAppState extends State<MyApp> {
       detectionRepository,
       autocaptureViewModel: autocaptureViewModel,
     );
-    viewModel.loadTemplates(
-      logoBytes: logoData.buffer.asUint8List(),
-      flagBytes: flagData.buffer.asUint8List(),
+    // Spawns the background isolate and loads the cascade + templates
+    // into it - must be awaited before the camera stream starts feeding
+    // it frames (CameraScreen only calls startImageStream once this
+    // whole bootstrap has finished and the provider is available).
+    await viewModel.initialize(
+      cascadePath: cascadePath,
+      logoBytes: logoBytes,
+      flagBytes: flagBytes,
     );
 
     // When a side is captured: store its bytes, then either advance to the

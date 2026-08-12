@@ -8,7 +8,7 @@ import 'dart:ui';
 class StabilityTracker {
   StabilityTracker({
     this.maxCornerDrift = 8.0,
-    this.requiredStableFrames = 4,
+    this.requiredStableFrames = 3,
   });
 
   /// Déplacement moyen max (en pixels, dans le même repère que les

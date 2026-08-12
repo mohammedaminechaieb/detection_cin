@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../../data/datasources/card_image_enhancer.dart';
 import '../../data/datasources/print_page_composer.dart';
+import '../entities/enhancement_settings.dart';
 import '../entities/processed_card.dart';
 
 /// Orchestration pure : améliore le recto et le verso individuellement,
@@ -12,17 +13,24 @@ import '../entities/processed_card.dart';
 /// donc volontairement sans état et sans dépendance Flutter.
 class ProcessCapturedCard {
   const ProcessCapturedCard({
-    CardImageEnhancer enhancer = const CardImageEnhancer(),
     PrintPageComposer composer = const PrintPageComposer(),
-  })  : _enhancer = enhancer,
-        _composer = composer;
+  }) : _composer = composer;
 
-  final CardImageEnhancer _enhancer;
   final PrintPageComposer _composer;
 
-  ProcessedCard call(Uint8List frontPng, Uint8List backPng) {
-    final enhancedFront = _enhancer.enhance(frontPng);
-    final enhancedBack = _enhancer.enhance(backPng);
+  ProcessedCard call(
+    Uint8List frontPng,
+    Uint8List backPng, {
+    EnhancementSettings settings = EnhancementSettings.defaults,
+  }) {
+    final enhancer = CardImageEnhancer(
+      contrast: settings.contrastLevel.factor,
+      sharpenRadius: settings.sharpenEnabled ? 2 : 0,
+      grayscale: settings.grayscale,
+    );
+
+    final enhancedFront = enhancer.enhance(frontPng);
+    final enhancedBack = enhancer.enhance(backPng);
     final printPage = _composer.compose(enhancedFront, enhancedBack);
 
     return ProcessedCard(

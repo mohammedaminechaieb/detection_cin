@@ -36,11 +36,17 @@ class DetectBackOrientation {
       final rotated = repository.applyRotation(warpedCard, angle);
 
       final (barcodeFound, barcodeScore) = repository.detectBarcodePresence(rotated);
-      final (fingerprintFound, fingerprintScore) = repository.detectFingerprintPresence(rotated);
+      final (fingerprintFound, _) = repository.detectFingerprintPresence(rotated);
       final (lineFound, _, lineScore) = repository.detectSeparationLine(rotated);
 
+      // fingerprintScore is deliberately excluded here: it's a raw Laplacian
+      // variance (from FingerprintPresenceDetector's blur/texture check),
+      // on a completely different scale from barcodeScore/lineScore, and
+      // including it distorted rotation selection (a sharp but wrongly
+      // rotated candidate could out-score a correctly rotated one just from
+      // texture variance). fingerprintFound still contributes via `hits`.
       final hits = (barcodeFound ? 1 : 0) + (fingerprintFound ? 1 : 0) + (lineFound ? 1 : 0);
-      final score = hits * 10 + barcodeScore + fingerprintScore + lineScore;
+      final score = hits * 10 + barcodeScore + lineScore;
 
       if (!identical(rotated, warpedCard)) {
         rotated.dispose();

@@ -11,17 +11,18 @@ import '../../domain/usecases/evaluate_capture_readiness.dart';
 class AutocaptureViewModel extends ChangeNotifier {
   AutocaptureViewModel({
     EvaluateCaptureReadiness? evaluateReadiness,
-    this.requiredGoodFrames = 5,
+    this.requiredGoodFrames = 3,
     this.onCaptureReady,
   }) : _evaluateReadiness = evaluateReadiness ?? const EvaluateCaptureReadiness();
 
   final EvaluateCaptureReadiness _evaluateReadiness;
 
   /// Nombre de frames consécutives devant passer tous les contrôles
-  /// avant que la capture se déclenche. Au débit d'analyse throttlé
-  /// existant (~10-15 fps côté DetectionViewModel), ça correspond
-  /// grosso modo à 0.7-1s de "tout est bon". À ajuster une fois testé
-  /// sur device.
+  /// avant que la capture se déclenche. Réduit de 8/10 à 3 (voir aussi
+  /// `StabilityTracker.requiredStableFrames`) pour accélérer la
+  /// capture - au débit throttlé existant (~350ms/frame côté
+  /// DetectionViewModel), ça correspond à ~1s de "tout est bon" avant
+  /// de déclencher. À ajuster une fois testé sur device.
   final int requiredGoodFrames;
 
   /// Appelé exactement une fois par cycle de capture, quand [state]

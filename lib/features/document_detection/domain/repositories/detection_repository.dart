@@ -21,4 +21,8 @@ abstract class DetectionRepository {
   /// Encode [image] en PNG pour sauvegarde/affichage (ex. après une
   /// capture validée par l'autocapture). Ne modifie ni ne libère [image].
   Uint8List encodeToPng(cv.Mat image);
+
+  /// Décode des octets PNG (ex. une carte déjà capturée) en [cv.Mat].
+  /// L'appelant est responsable de disposer le Mat retourné.
+  cv.Mat decodePng(Uint8List pngBytes);
 }
