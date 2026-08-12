@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../document_detection/domain/entities/detected_document.dart' show CardSide;
 import '../../../document_detection/presentation/viewmodels/detection_viewmodel.dart';
+import '../../../image_postprocessing/domain/entities/enhancement_settings.dart';
 import '../../../image_postprocessing/presentation/viewmodels/postprocessing_viewmodel.dart';
 import '../viewmodels/captured_cards_viewmodel.dart';
 import 'recrop_screen.dart';
@@ -46,6 +47,22 @@ class ResultPreviewScreen extends StatelessWidget {
     context.read<PostprocessingViewModel>().process(card.front!, card.back!);
   }
 
+  Future<void> _openEnhancementPicker(BuildContext context) async {
+    final processing = context.read<PostprocessingViewModel>();
+    final result = await showModalBottomSheet<EnhancementSettings>(
+      context: context,
+      backgroundColor: const Color(0xFF1C1C1E),
+      isScrollControlled: true,
+      builder: (_) => _EnhancementPickerSheet(initial: processing.settings),
+    );
+    if (result == null || !context.mounted) return;
+
+    final capturedCardsViewModel = context.read<CapturedCardsViewModel>();
+    final card = capturedCardsViewModel.card;
+    if (card.front == null || card.back == null) return;
+    processing.process(card.front!, card.back!, settings: result);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -53,6 +70,13 @@ class ResultPreviewScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.black,
         title: const Text('Vérification'),
+        actions: [
+          IconButton(
+            onPressed: () => _openEnhancementPicker(context),
+            icon: const Icon(Icons.tune),
+            tooltip: 'Options d\'amélioration',
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -190,6 +214,95 @@ class _CardImage extends StatelessWidget {
           child: Image.memory(bytes, fit: BoxFit.contain),
         ),
       ],
+    );
+  }
+}
+
+class _EnhancementPickerSheet extends StatefulWidget {
+  const _EnhancementPickerSheet({required this.initial});
+
+  final EnhancementSettings initial;
+
+  @override
+  State<_EnhancementPickerSheet> createState() => _EnhancementPickerSheetState();
+}
+
+class _EnhancementPickerSheetState extends State<_EnhancementPickerSheet> {
+  late EnhancementSettings _settings = widget.initial;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 12,
+          bottom: 12 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const Text(
+              'Options d\'amélioration',
+              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 20),
+            const Text('Contraste', style: TextStyle(color: Colors.white70)),
+            const SizedBox(height: 8),
+            SegmentedButton<ContrastLevel>(
+              segments: ContrastLevel.values
+                  .map((level) => ButtonSegment(value: level, label: Text(level.label)))
+                  .toList(),
+              selected: {_settings.contrastLevel},
+              onSelectionChanged: (selected) {
+                setState(() => _settings = _settings.copyWith(contrastLevel: selected.first));
+              },
+            ),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Netteté', style: TextStyle(color: Colors.white)),
+              subtitle: const Text(
+                'Accentue le texte et les bords',
+                style: TextStyle(color: Colors.white54),
+              ),
+              value: _settings.sharpenEnabled,
+              onChanged: (value) => setState(() => _settings = _settings.copyWith(sharpenEnabled: value)),
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Mode scan (N&B)', style: TextStyle(color: Colors.white)),
+              subtitle: const Text(
+                'Convertit en noir et blanc, comme un scanner',
+                style: TextStyle(color: Colors.white54),
+              ),
+              value: _settings.grayscale,
+              onChanged: (value) => setState(() => _settings = _settings.copyWith(grayscale: value)),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(_settings),
+                child: const Text('Appliquer'),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
