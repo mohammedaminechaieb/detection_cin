@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:provider/provider.dart';
@@ -31,6 +32,11 @@ class _CameraScreenState extends State<CameraScreen> {
       final controller = cameraViewModel.cameraController;
       if (controller != null && mounted) {
         final detectionViewModel = context.read<DetectionViewModel>();
+        if (kDebugMode) {
+          detectionViewModel.onFrameDuration = (elapsed) {
+            debugPrint('[detection] frame processed in ${elapsed.inMilliseconds}ms');
+          };
+        }
         controller.startImageStream(detectionViewModel.onFrame);
         _streamedController = controller;
       }
