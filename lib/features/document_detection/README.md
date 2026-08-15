@@ -30,11 +30,12 @@ Each file owns exactly one detection concern:
 | `document_contour_detector.dart` | Finds and tracks the card's quad across frames (the largest piece - candidate generation from several image-processing passes, plus frame-to-frame tracking). |
 | `perspective_warper.dart` | Rectifies a detected quad into a flat top-down image. |
 | `card_rotator.dart` | Small shared helper to rotate a card image by 0/90/180/270 degrees. |
-| `face_orientation_detector.dart` | Finds the ID photo and, by testing all 4 rotations, determines the card's correct orientation. |
+| `face_orientation_detector.dart` | Finds the ID photo and, by testing all 4 rotations, determines the front card's correct orientation. |
 | `template_matcher.dart` | Matches the logo/flag templates against fixed regions of an oriented card. |
 | `barcode_area_detector.dart` | Checks whether a barcode occupies a plausible area on the back. |
 | `fingerprint_presence_detector.dart` | Checks fingerprint-area texture via Laplacian variance. |
 | `separation_line_detector.dart` | Finds the horizontal separation line on the back via edge detection + Hough transform. |
+| `back_orientation_detector.dart` | Back-side counterpart of `face_orientation_detector.dart`: no face to anchor on, so it tries all 4 rotations and keeps whichever one the barcode/fingerprint/separation-line checks best support. |
 
 This was originally one 655-line `DocumentDetectionDataSource` class
 doing all of the above; it's been split so each algorithm can be read,
