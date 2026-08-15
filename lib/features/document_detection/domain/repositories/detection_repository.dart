@@ -18,6 +18,12 @@ abstract class DetectionRepository {
   (bool, double) detectBarcodePresence(cv.Mat orientedCard);
   (bool, double) detectFingerprintPresence(cv.Mat orientedCard);
   (bool, (int, int, int, int)?, double) detectSeparationLine(cv.Mat orientedCard);
+
+  /// Back-side counterpart of [detectPhoto]'s rotation search - see
+  /// `BackOrientationDetector`. Takes the raw `warped` card, not an
+  /// already-oriented one.
+  BackOrientationResult detectBackOrientation(cv.Mat warpedCard);
+
   /// Encode [image] en PNG pour sauvegarde/affichage (ex. après une
   /// capture validée par l'autocapture). Ne modifie ni ne libère [image].
   Uint8List encodeToPng(cv.Mat image);

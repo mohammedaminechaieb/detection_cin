@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 
 import '../../domain/entities/detected_document.dart';
+import 'detectors/back_orientation_detector.dart';
 import 'detectors/barcode_area_detector.dart';
 import 'detectors/card_rotator.dart';
 import 'detectors/document_contour_detector.dart';
@@ -29,7 +30,14 @@ class DocumentDetectionDataSource {
         _barcodeDetector = BarcodeAreaDetector(),
         _fingerprintDetector = const FingerprintPresenceDetector(),
         _separationLineDetector = const SeparationLineDetector(),
-        _rotator = const CardRotator();
+        _rotator = const CardRotator() {
+    _backOrientationDetector = BackOrientationDetector(
+      _barcodeDetector,
+      _fingerprintDetector,
+      _separationLineDetector,
+      rotator: _rotator,
+    );
+  }
 
   final DocumentContourDetector _contourDetector;
   final PerspectiveWarper _warper;
@@ -39,6 +47,7 @@ class DocumentDetectionDataSource {
   final FingerprintPresenceDetector _fingerprintDetector;
   final SeparationLineDetector _separationLineDetector;
   final CardRotator _rotator;
+  late final BackOrientationDetector _backOrientationDetector;
 
   void resetTracking() => _contourDetector.resetTracking();
 
@@ -71,4 +80,13 @@ class DocumentDetectionDataSource {
 
   (bool, (int, int, int, int)?, double) detectSeparationLine(cv.Mat orientedCard) =>
       _separationLineDetector.detect(orientedCard);
+
+  /// Finds the back-side card's correct rotation and returns the
+  /// barcode/fingerprint/separation-line results already computed at
+  /// that rotation - see [BackOrientationDetector] for why this needs to
+  /// exist at all (there's no face to orient the back by like the front
+  /// has). Takes the raw `warped` card, not an oriented one - orienting
+  /// it correctly is exactly what this determines.
+  BackOrientationResult detectBackOrientation(cv.Mat warpedCard) =>
+      _backOrientationDetector.detect(warpedCard);
 }

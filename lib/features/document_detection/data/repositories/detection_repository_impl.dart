@@ -50,6 +50,11 @@ class DetectionRepositoryImpl implements DetectionRepository {
   @override
   (bool, (int, int, int, int)?, double) detectSeparationLine(cv.Mat orientedCard) =>
       dataSource.detectSeparationLine(orientedCard);
+
+  @override
+  BackOrientationResult detectBackOrientation(cv.Mat warpedCard) =>
+      dataSource.detectBackOrientation(warpedCard);
+
   // ASSUMPTION (unverified against the installed opencv_dart version):
   // `cv.imencode` returns a `(bool success, Uint8List bytes)` tuple, mirroring
   // `cv.imdecode` already used in template_matcher.dart. If `flutter analyze`

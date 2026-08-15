@@ -9,7 +9,6 @@ import '../../../../../shared/utils/detection_stabilizer.dart' show DetectionSta
 import '../../../../image_quality/data/datasources/detectors/blur_detector.dart';
 import '../../../../image_quality/data/datasources/detectors/brightness_detector.dart';
 import '../../../domain/entities/detected_document.dart';
-import '../../../domain/usecases/detect_back_orientation.dart';
 import '../../repositories/detection_repository_impl.dart';
 import '../document_detection_datasource.dart';
 import '../isolate_frame_messages.dart';
@@ -178,7 +177,6 @@ void _workerMain(SendPort initSendPort) {
 
   DocumentDetectionDataSource? dataSource;
   DetectionRepositoryImpl? repository;
-  DetectBackOrientation? detectBackOrientation;
   cv.Mat? logoTemplate;
   cv.Mat? flagTemplate;
   var currentSide = CardSide.front;
@@ -207,7 +205,6 @@ void _workerMain(SendPort initSendPort) {
         final init = envelope.payload as _WorkerInit;
         dataSource = DocumentDetectionDataSource(init.cascadePath);
         repository = DetectionRepositoryImpl(dataSource!);
-        detectBackOrientation = DetectBackOrientation(repository!);
         logoTemplate = repository!.loadTemplateFromBytes(init.logoBytes);
         flagTemplate = repository!.loadTemplateFromBytes(init.flagBytes);
         replyPort.send(const _Envelope(-1, _WorkerReady()));
@@ -246,7 +243,7 @@ void _workerMain(SendPort initSendPort) {
       }
 
       if (payload is IsolateCaptureRequest) {
-        final result = _captureFrame(payload, repo, detectBackOrientation!, currentSide, _matFromFrame);
+        final result = _captureFrame(payload, repo, currentSide, _matFromFrame);
         replyPort.send(_Envelope(envelope.id, result));
         return;
       }
@@ -373,12 +370,25 @@ BackAnalysisResult _analyzeBack(
   DetectionRepositoryImpl repository,
   DetectionStabilizer stabilizer,
 ) {
-  final (barcodeFound, barcodeScore) = repository.detectBarcodePresence(warped);
-  final (fingerprintFound, fingerprintScore) = repository.detectFingerprintPresence(warped);
-  final (lineFound, _, lineScore) = repository.detectSeparationLine(warped);
+  // `warped` is only rectified, not rotated to right-side-up - unlike the
+  // front (which orients via `FaceOrientationDetector` before running its
+  // logo/flag checks, see `_analyzeFront` above), the back was previously
+  // running these three checks directly on `warped` at whatever rotation
+  // the physical card happened to be sitting at. `BarcodeAreaDetector`'s
+  // fixed area check tolerates that reasonably well, but
+  // `FingerprintPresenceDetector`'s fixed ROI and especially
+  // `SeparationLineDetector`'s near-horizontal-only search do not - a
+  // card rotated 90 degrees puts the real separation line close to
+  // *vertical*, which was getting rejected outright, and the "search on
+  // the side" symptom this fixes. `detectBackOrientation` finds the right
+  // rotation the same way the front does (try all 4, keep the
+  // best-supported one) and returns the barcode/fingerprint/line results
+  // already computed at that rotation, so there's no separate "detect,
+  // then re-detect at the chosen angle" step needed here.
+  final orientation = repository.detectBackOrientation(warped);
 
-  stabilizer.update('barcode', barcodeFound);
-  stabilizer.update('fingerprint', fingerprintFound);
+  stabilizer.update('barcode', orientation.barcodeFound);
+  stabilizer.update('fingerprint', orientation.fingerprintFound);
   // `framesToConfirm: 2` (not the stabilizer's default 3, and NOT 1 - 1
   // was tried and made this flicker green/red rapidly, since it
   // confirmed on a single noisy hit but still needed 2 consecutive
@@ -386,23 +396,23 @@ BackAnalysisResult _analyzeBack(
   // noisy per-frame Hough-transform signal). 2-in/2-out requires the
   // same number of consecutive frames each direction, so a single stray
   // hit or miss can't flip the state on its own.
-  stabilizer.update('separation_line', lineFound, framesToConfirm: 2);
+  stabilizer.update('separation_line', orientation.separationLineFound, framesToConfirm: 2);
 
   return BackAnalysisResult(
     document: document,
-    barcodeFound: barcodeFound,
-    barcodeScore: barcodeScore,
-    fingerprintFound: fingerprintFound,
-    fingerprintScore: fingerprintScore,
-    separationLineFound: lineFound,
-    separationLineScore: lineScore,
+    rotationDegrees: orientation.rotationDegrees,
+    barcodeFound: orientation.barcodeFound,
+    barcodeScore: orientation.barcodeScore,
+    fingerprintFound: orientation.fingerprintFound,
+    fingerprintScore: orientation.fingerprintScore,
+    separationLineFound: orientation.separationLineFound,
+    separationLineScore: orientation.separationLineScore,
   );
 }
 
 IsolateCaptureResult _captureFrame(
   IsolateCaptureRequest request,
   DetectionRepositoryImpl repository,
-  DetectBackOrientation detectBackOrientation,
   CardSide currentSide,
   cv.Mat Function(IsolateFrameInput) matFromFrame,
 ) {
@@ -418,8 +428,7 @@ IsolateCaptureResult _captureFrame(
 
     warped = repository.warpDocument(mat, document.quad!);
 
-    final rotationDegrees = request.rotationDegrees ?? detectBackOrientation(warped).$1;
-    finalImage = repository.applyRotation(warped, rotationDegrees);
+    finalImage = repository.applyRotation(warped, request.rotationDegrees);
     final pngBytes = repository.encodeToPng(finalImage);
     return IsolateCaptureResult(pngBytes: pngBytes);
   } finally {

@@ -67,6 +67,44 @@ class CardRect {
   const CardRect(this.x, this.y, this.width, this.height);
 }
 
+/// Result of [BackOrientationDetector]'s search - the back-side
+/// equivalent of [PhotoDetectionResult], carrying the winning rotation
+/// plus the barcode/fingerprint/separation-line results already computed
+/// at that rotation, so callers don't need to re-run those checks a
+/// second time at the chosen angle.
+class BackOrientationResult {
+  final int rotationDegrees;
+  final bool barcodeFound;
+  final double barcodeScore;
+  final bool fingerprintFound;
+  final double fingerprintScore;
+  final bool separationLineFound;
+  final (int, int, int, int)? separationLineBox;
+  final double separationLineScore;
+
+  const BackOrientationResult({
+    required this.rotationDegrees,
+    required this.barcodeFound,
+    required this.barcodeScore,
+    required this.fingerprintFound,
+    required this.fingerprintScore,
+    required this.separationLineFound,
+    required this.separationLineBox,
+    required this.separationLineScore,
+  });
+
+  factory BackOrientationResult.none() => const BackOrientationResult(
+        rotationDegrees: 0,
+        barcodeFound: false,
+        barcodeScore: 0,
+        fingerprintFound: false,
+        fingerprintScore: 0,
+        separationLineFound: false,
+        separationLineBox: null,
+        separationLineScore: 0,
+      );
+}
+
 class CardAnalysisResult {
   final DetectedDocument document;
   final PhotoDetectionResult photo;
@@ -99,6 +137,16 @@ class CardAnalysisResult {
 
 class BackAnalysisResult {
   final DetectedDocument document;
+
+  /// The rotation (0/90/180/270) [BackOrientationDetector] picked for
+  /// this frame - the back-side counterpart of `CardAnalysisResult.photo.
+  /// rotationDegrees`. There's no face to anchor on for the back, so this
+  /// is derived from the barcode/fingerprint/separation-line checks
+  /// themselves (see `BackOrientationDetector`) rather than computed
+  /// separately; it's carried here so a capture request for the back can
+  /// reuse the value already found during live analysis instead of
+  /// re-running that search once more at capture time.
+  final int rotationDegrees;
   final bool barcodeFound;
   final double barcodeScore;
   final bool fingerprintFound;
@@ -108,6 +156,7 @@ class BackAnalysisResult {
 
   const BackAnalysisResult({
     required this.document,
+    required this.rotationDegrees,
     required this.barcodeFound,
     required this.barcodeScore,
     required this.fingerprintFound,
@@ -118,6 +167,7 @@ class BackAnalysisResult {
 
   factory BackAnalysisResult.none() => BackAnalysisResult(
         document: DetectedDocument.none(),
+        rotationDegrees: 0,
         barcodeFound: false,
         barcodeScore: 0,
         fingerprintFound: false,

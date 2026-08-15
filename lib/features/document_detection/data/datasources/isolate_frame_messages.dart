@@ -116,10 +116,12 @@ class IsolateCaptureRequest {
 
   final IsolateFrameInput frame;
 
-  /// `null` for the back side, where the correct rotation isn't known
-  /// until capture time (see `DetectBackOrientation` - unchanged, still
-  /// runs inside the worker as part of handling this request).
-  final int? rotationDegrees;
+  /// The rotation to apply before encoding - for the front this is
+  /// `CardAnalysisResult.photo.rotationDegrees`; for the back,
+  /// `BackAnalysisResult.rotationDegrees` (see `BackOrientationDetector`).
+  /// Either way it's a value already computed during this frame's regular
+  /// analysis and just passed back through, not re-derived here.
+  final int rotationDegrees;
 }
 
 /// Result of an [IsolateCaptureRequest] - `pngBytes` is null if the card
