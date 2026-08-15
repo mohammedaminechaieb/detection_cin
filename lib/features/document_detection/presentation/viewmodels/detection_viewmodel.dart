@@ -1,6 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:detection_cin/features/image_quality/data/datasources/detectors/brightness_detector.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 
 import '../../data/datasources/detectors/detection_isolate_worker.dart';
 import '../../data/datasources/isolate_frame_messages.dart';
@@ -200,14 +201,22 @@ class DetectionViewModel extends ChangeNotifier {
       autocaptureViewModel?.onFrame(report);
       final justCaptured = !wasCaptured && autocaptureViewModel?.state == CaptureState.captured;
       if (justCaptured) {
-        // Front already knows its rotation cheaply (from face detection,
-        // already computed as part of this frame's analysis); back has
-        // no face to anchor on, so pass `null` and let the worker run
-        // the one-time 4-rotation search inside `capture` instead (see
-        // `DetectBackOrientation` - still deliberately NOT run every
-        // frame, only on this explicit capture request).
-        final rotationDegrees =
-            _currentSide == CardSide.front ? _lastFrontResult.photo.rotationDegrees : null;
+        // Physical confirmation that a capture just fired - useful in
+        // particular here because the phone is typically being held
+        // steady at arm's length with attention on framing the card,
+        // not glued to the on-screen status text.
+        HapticFeedback.mediumImpact();
+        // Front knows its rotation from face detection; back has no face
+        // to anchor on, so it's determined instead by
+        // `BackOrientationDetector`'s own 4-rotation search over the
+        // barcode/fingerprint/separation-line checks - see that class and
+        // `DetectionIsolateWorker._analyzeBack`. Both run as a byproduct
+        // of this frame's regular analysis (not specially re-run here),
+        // so `_lastFrontResult`/`_lastBackResult` already carry whichever
+        // one applies to `_currentSide`.
+        final rotationDegrees = _currentSide == CardSide.front
+            ? _lastFrontResult.photo.rotationDegrees
+            : _lastBackResult.rotationDegrees;
         final captureResult = await worker.capture(
           IsolateCaptureRequest(frame: frame, rotationDegrees: rotationDegrees),
         );
