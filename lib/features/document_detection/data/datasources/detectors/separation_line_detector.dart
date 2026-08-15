@@ -18,10 +18,31 @@ import 'package:opencv_dart/opencv_dart.dart' as cv;
 class SeparationLineDetector {
   const SeparationLineDetector();
 
-  static const double _defaultMinLengthRatio = 0.5;
+  // Lowered from 0.5: a genuinely faint printed line (small gradient, not
+  // black-on-white) breaks up into shorter Hough segments even with the
+  // tophat/blackhat feature mask below, since low-contrast stretches of
+  // it fall right at the mask's own noise floor. 0.45 still rejects
+  // short unrelated horizontal edges (text baselines are much shorter
+  // relative to the card width), it just stops discarding a real line
+  // that Hough only recovered in slightly-less-than-full-width pieces.
+  static const double _defaultMinLengthRatio = 0.45;
   static const double _maxAngleFromHorizontalDegrees = 10;
-  static const int _houghThreshold = 80;
-  static const double _houghMaxLineGap = 10;
+  // Lowered from 80: a faint line contributes fewer edge-pixel "votes"
+  // per unit length to the Hough accumulator than a high-contrast one,
+  // even after the tophat/blackhat local-contrast pass - 80 was tuned
+  // against strong black/white edges and was silently rejecting faint
+  // lines that never accumulated enough votes to be returned as a
+  // candidate at all, regardless of length. Combined with the stricter
+  // horizontal-angle and length-ratio checks, and the temporal
+  // stabilizer downstream, this doesn't meaningfully open the door to
+  // false positives - it just lets weaker-but-real lines register.
+  static const int _houghThreshold = 60;
+  // Raised from 10: bridges the small gaps a faint line tends to leave
+  // in its own edge mask (a few pixels here and there sitting just under
+  // the local threshold), so Hough can still merge it into one long
+  // segment instead of several short ones that individually fail
+  // `minLengthRatio`.
+  static const double _houghMaxLineGap = 16;
 
   // Was fixed at 50/150: fine in good light, but under dim/poor lighting
   // a low-contrast region produces far fewer edges at a fixed absolute
@@ -37,6 +58,11 @@ class SeparationLineDetector {
   /// Fraction of the card's height, measured up from the bottom edge,
   /// that the search is restricted to.
   static const double _defaultBottomRegionRatio = 0.35;
+
+  // Keep only the top 3% of tophat/blackhat responses as "line" pixels.
+  // See the comment where this is used for why a percentile (not Otsu)
+  // is the right threshold here.
+  static const double _lineFeaturePercentile = 0.97;
 
   (bool, (int, int, int, int)?, double) detect(
     cv.Mat orientedCard, {
@@ -82,12 +108,64 @@ class SeparationLineDetector {
     cannyLower = math.min(cannyLower, 90.0);
     cannyUpper = math.max(cannyUpper, 60.0);
     final grayEdges = cv.canny(gray, cannyLower, cannyUpper);
+
+    // Canny and the saturation-gradient pass above both threshold against
+    // a *global* statistic of the region (the median, the Otsu split).
+    // The real printed separation line on a CIN back is often a genuinely
+    // faint, low-contrast rule - not "white on black" - so its actual
+    // gradient can sit below whatever global threshold either of those
+    // passes settles on, while some *other* unrelated horizontal edge
+    // (a text baseline, the barcode's own border) has enough contrast to
+    // clear it instead. That's the reported symptom: "detects any line,
+    // not the real one, because it's tuned for high contrast."
+    //
+    // Top-hat/black-hat with a wide, flat, 1px-tall horizontal kernel
+    // finds thin features by comparing each pixel only to its *local*
+    // neighbourhood along that kernel, not to a global statistic - so a
+    // faint line still stands out against its immediate surroundings
+    // even when the region as a whole is low-contrast. This is the
+    // standard technique for isolating thin line/rule features
+    // independent of overall scene contrast.
+    final lineKernelWidth = math.max(15, (w * 0.05).round());
+    final lineKernel = cv.getStructuringElement(cv.MORPH_RECT, (lineKernelWidth, 1));
+    final tophat = cv.morphologyEx(gray, cv.MORPH_TOPHAT, lineKernel);
+    final blackhat = cv.morphologyEx(gray, cv.MORPH_BLACKHAT, lineKernel);
+    final lineFeature = cv.bitwiseOR(tophat, blackhat);
+    tophat.dispose();
+    blackhat.dispose();
+    // Was Otsu-thresholded here - which is the wrong tool for this
+    // specific job. Otsu assumes a roughly bimodal histogram and finds
+    // the split between its two humps; a real separation line only ever
+    // covers a couple of percent of the bottom-region's pixels, so its
+    // (real, but small) response sits as a thin tail on an otherwise
+    // near-unimodal "background texture" histogram - Otsu tends to
+    // fold that tail into "background" rather than isolate it,
+    // especially the fainter that tail is. That's the reported
+    // "small gradient change is not detected" symptom surviving even
+    // after the tophat/blackhat fix: the *feature map* was already
+    // finding the faint line, the *threshold* on top of it was then
+    // discarding it anyway.
+    //
+    // A percentile threshold sidesteps that assumption entirely: it
+    // just keeps the top `1 - kLineFeaturePercentile` of responses,
+    // whatever their absolute value, which is exactly what "isolate the
+    // sparse strongest-local-contrast pixels" needs. Floored at 12 so a
+    // genuinely flat/textureless region (no line and little noise, low
+    // percentile response) doesn't threshold at ~0 and mark everything
+    // as a line.
+    final percentileThreshold = math.max(12.0, _percentile(lineFeature, _lineFeaturePercentile));
+    final (_, lineMask) = cv.threshold(lineFeature, percentileThreshold, 255, cv.THRESH_BINARY);
+    lineFeature.dispose();
+
     gray.dispose();
     region.dispose();
 
-    final edges = cv.bitwiseOR(colorEdges, grayEdges);
+    final combined = cv.bitwiseOR(colorEdges, grayEdges);
     colorEdges.dispose();
     grayEdges.dispose();
+    final edges = cv.bitwiseOR(combined, lineMask);
+    combined.dispose();
+    lineMask.dispose();
 
     final linesMat = cv.HoughLinesP(
       edges,
@@ -131,6 +209,32 @@ class SeparationLineDetector {
     final lengthRatio = bestLength / w;
     final found = lengthRatio >= minLengthRatio;
     return (found, bestLine, lengthRatio);
+  }
+
+  /// Value below which [percentile] fraction of [img]'s pixels fall,
+  /// via the same histogram-cumulative-sum approach as [_median] (which
+  /// is just this at `percentile = 0.5`).
+  double _percentile(cv.Mat img, double percentile) {
+    final hist = cv.calcHist(
+      cv.VecMat.fromList([img]),
+      cv.VecI32.fromList([0]),
+      cv.Mat.empty(),
+      cv.VecI32.fromList([256]),
+      cv.VecF32.fromList([0, 256]),
+    );
+    final totalPixels = img.rows * img.cols;
+    final targetCount = totalPixels * percentile;
+
+    var cumulative = 0.0;
+    for (var bin = 0; bin < 256; bin++) {
+      cumulative += hist.at<double>(bin, 0);
+      if (cumulative >= targetCount) {
+        hist.dispose();
+        return bin.toDouble();
+      }
+    }
+    hist.dispose();
+    return 255.0;
   }
 
   double _median(cv.Mat gray) {

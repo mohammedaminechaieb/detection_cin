@@ -7,7 +7,17 @@ import 'card_quad_geometry.dart';
 
 /// Minimum combined aspect-ratio/size score (see [CardQuadGeometry.quadScore])
 /// for a candidate quad to be accepted as a real detection.
-const double kMinDetectionScore = 0.35;
+///
+/// Lowered from 0.35: even after the CLAHE/median-Canny fixes below, a
+/// light card on a light background still produces a slightly noisier
+/// quad (softer corners, a bit more aspect-ratio error) than a
+/// high-contrast one - it was landing at ~0.30-0.35 and getting rejected
+/// right at the old cutoff. This isn't accepting "no edge" candidates,
+/// it's accepting slightly-imperfect-but-real ones; false positives are
+/// still filtered by `DetectionStabilizer` requiring 3 consecutive
+/// confirming frames before the UI (or autocapture) treats the border as
+/// actually detected.
+const double kMinDetectionScore = 0.30;
 
 class _Candidate {
   final CardQuad quad;
@@ -43,7 +53,21 @@ class DocumentContourDetector {
   // Coarse full-frame search downscales by this factor before its first
   // pass, purely for speed - the resulting quad is scaled back up and
   // re-detected at full resolution within a margin around it.
-  static const double _coarseSearchScale = 0.3;
+  //
+  // This is the actual reason detection worked on dark backgrounds but
+  // not light/white ones: a light card on a light surface only ever
+  // produces a *weak* gradient at its border to begin with, and
+  // downscaling to 30% averages pixels together, which softens - and on
+  // an already-weak edge, can erase - exactly that gradient before Canny
+  // ever runs. A strong dark-background edge has enough margin to
+  // survive that softening; a light-on-light edge often doesn't. Since
+  // `_detectFullFrame` aborts immediately if this coarse pass finds
+  // nothing (see below), losing the edge here means detection never even
+  // reaches the more careful full-resolution pass. Raising the scale
+  // keeps more of the original gradient intact, at some speed cost - this
+  // path only runs while no quad is currently tracked, i.e. initial
+  // acquisition or after a lost track, not every frame.
+  static const double _coarseSearchScale = 0.45;
   static const double _coarseSearchMarginFraction = 0.15;
   static const double _trackedSearchMarginFraction = 0.20;
 
@@ -54,7 +78,16 @@ class DocumentContourDetector {
 
   // A contour must cover at least this fraction of the search area to be
   // considered as a candidate (filters out small noise/texture contours).
-  static const double _minContourAreaFraction = 0.05;
+  //
+  // Lowered from 0.05: on a light-on-light scene the border's edge map is
+  // thinner and more broken up even after CLAHE, so `findContours` more
+  // often returns several smaller fragments of the true border instead of
+  // one clean closed contour. 0.05 was discarding fragments that were
+  // still a real (if partial) piece of the card's edge before they ever
+  // reached the aspect/area scoring step. 0.035 keeps those in play
+  // without letting through pure noise/texture contours, which are
+  // typically an order of magnitude smaller than the card itself.
+  static const double _minContourAreaFraction = 0.035;
 
   // approxPolyDP epsilon, as a fraction of the contour's perimeter -
   // controls how aggressively the contour is simplified toward 4 corners.
@@ -106,7 +139,16 @@ class DocumentContourDetector {
     m3.dispose();
     m4.dispose();
 
-    if (coarseCandidates.isEmpty) return DetectedDocument.none();
+    if (coarseCandidates.isEmpty) {
+      // Last resort for a scene where even the raised coarse scale above
+      // still lost the border (very low light-on-light contrast): search
+      // the whole frame at full resolution instead of a downscaled copy.
+      // This only runs on initial acquisition/re-acquisition (no quad is
+      // tracked yet at this point), not every frame, so it trades a
+      // slower one-off search for actually finding the card at all.
+      return _detectInCroppedRegion(image, 0, 0, image.cols, image.rows) ??
+          DetectedDocument.none();
+    }
     coarseCandidates.sort((a, b) => b.score.compareTo(a.score));
     final coarseBest = coarseCandidates.first;
     if (coarseBest.score < kMinDetectionScore) return DetectedDocument.none();
@@ -238,7 +280,14 @@ class DocumentContourDetector {
     // chance to run, because tracking was never established in the first
     // place. Adding CLAHE here too (skipping the heavier bilateral filter
     // to keep this pass cheap) fixes that gate.
-    final clahe = cv.createCLAHE(clipLimit: 2.5, tileGridSize: (8, 8));
+    //
+    // Clip limit raised from 2.5 to 3.5: on a light-on-light scene the
+    // *local* contrast the border actually has is small even after
+    // normalizing for global brightness, so a higher clip limit (more
+    // aggressive local contrast boost) is needed to push that gradient
+    // up into a range Canny's fixed lower/upper bounds (see
+    // `_findCandidates`) can actually pick up.
+    final clahe = cv.createCLAHE(clipLimit: 3.5, tileGridSize: (8, 8));
     final result = clahe.apply(blurred);
     blurred.dispose();
 
@@ -322,7 +371,38 @@ class DocumentContourDetector {
       satMaskRaw.dispose();
 
       _collectCandidatesFromMask(satMask, 'couleur', imgW, imgH, imageArea, candidates);
+      bestSoFar = candidates.isEmpty ? 0.0 : candidates.map((c) => c.score).reduce(math.max);
     }
+
+    // Last-resort pass, specifically for a card and its background that
+    // are nearly the same gray level even after CLAHE: every pass above
+    // still measures contrast against some *global* statistic somewhere
+    // (Canny's median-derived thresholds, Otsu's global histogram split
+    // for both the adaptive-threshold-derived and saturation masks) - on
+    // a true light-on-light scene the edge can survive as only a couple
+    // of gray levels of difference, below what any of those global
+    // thresholds will register as "an edge" at all. `MORPH_GRADIENT`
+    // (dilate-erode, evaluated per-pixel against its own local
+    // neighborhood) responds to a difference that small regardless of
+    // the frame's overall brightness - the same principle the
+    // tophat/blackhat fix in `SeparationLineDetector` already relies on
+    // for the same underlying problem. Otsu on the *gradient image*
+    // (not the raw frame) then separates "this pixel sits on some edge"
+    // from "this pixel doesn't", which remains a meaningful split even
+    // when the raw pixel values on either side of that edge are close.
+    cv.Mat? morphGradMask;
+    if (bestSoFar < _earlyExitScore) {
+      final gradKernel = cv.getStructuringElement(cv.MORPH_RECT, (3, 3));
+      final morphGrad = cv.morphologyEx(blurred, cv.MORPH_GRADIENT, gradKernel);
+      final (_, morphGradMaskRaw) =
+          cv.threshold(morphGrad, 0, 255, cv.THRESH_BINARY | cv.THRESH_OTSU);
+      morphGrad.dispose();
+      morphGradMask = cv.morphologyEx(morphGradMaskRaw, cv.MORPH_CLOSE, _kernel9, iterations: 2);
+      morphGradMaskRaw.dispose();
+
+      _collectCandidatesFromMask(morphGradMask, 'gradient_morpho', imgW, imgH, imageArea, candidates);
+    }
+    morphGradMask?.dispose();
 
     blurred.dispose();
 
