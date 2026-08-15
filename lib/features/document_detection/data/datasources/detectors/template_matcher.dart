@@ -47,6 +47,13 @@ class TemplateMatcher {
     return _matchTemplateInRoi(orientedCard, templateFlag, roi);
   }
 
+  // Same clipLimit/tileGridSize as `DocumentContourDetector._preprocessGray`
+  // and `BlurDetector.sharpnessScore` (see the latter for the fuller
+  // explanation) - kept identical across all three so "light surface"
+  // fixes behave consistently rather than each detector picking its own
+  // tuning for what's the same underlying problem.
+  static final _clahe = cv.createCLAHE(clipLimit: 2.5, tileGridSize: (8, 8));
+
   (bool, double) _matchTemplateInRoi(
     cv.Mat orientedCard,
     cv.Mat template,
@@ -62,8 +69,33 @@ class TemplateMatcher {
       return (false, 0.0);
     }
 
-    final result = cv.matchTemplate(grayRegion, template, cv.TM_CCOEFF_NORMED);
+    // CLAHE the ROI before matching - this is the fix for "templates
+    // don't work unless in a shadow place" on a light surface/higher
+    // ambient light. `TM_CCOEFF_NORMED` already mean/variance-normalizes
+    // each patch against itself (both template and ROI are compared as
+    // their own mean-subtracted, norm-divided versions), so it's already
+    // invariant to the ROI being uniformly brighter or lower-
+    // contrast overall - that part was never the problem. What it can't
+    // correct is *non-uniform* illumination within the ROI: real light on
+    // a light card rarely lands perfectly evenly, so one side/corner of
+    // the logo/flag ROI is often measurably brighter than the other
+    // (off-axis light, slight lamination glare, camera angle) - a single
+    // global mean/variance normalization over the whole ROI can't undo
+    // that local gradient, but a shadow incidentally can, by flattening
+    // the light hitting the card in the first place. CLAHE corrects the
+    // same thing directly, tile-by-tile, without needing that incidental
+    // shade - same technique (and same clipLimit/tileGridSize, for
+    // consistency) already applied to contour detection
+    // (`DocumentContourDetector`) and blur scoring (`BlurDetector`) for
+    // spatially-uneven light. The template itself is a clean scanned
+    // reference asset with no lighting unevenness to correct, so only the
+    // live ROI needs this - `matchTemplate` still compares it against the
+    // template's own gray levels as-is.
+    final equalizedRegion = _clahe.apply(grayRegion);
     grayRegion.dispose();
+
+    final result = cv.matchTemplate(equalizedRegion, template, cv.TM_CCOEFF_NORMED);
+    equalizedRegion.dispose();
     final (_, maxVal, _, _) = cv.minMaxLoc(result);
     result.dispose();
 
