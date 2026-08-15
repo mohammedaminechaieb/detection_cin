@@ -3,6 +3,8 @@
 <plist version="1.0">
 <key>NSCameraUsageDescription</key>
 <string>Cette application a besoin de la caméra pour scanner votre CIN.</string>
+<key>NSPhotoLibraryAddUsageDescription</key>
+<string>Cette application a besoin de la bibliothèque de photos pour enregistrer les images scannées.</string>
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
