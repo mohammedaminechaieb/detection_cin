@@ -59,6 +59,37 @@ class CardQuadGeometry {
     return true;
   }
 
+  /// Shrinks [q] toward its own centroid by [insetFraction] of its own
+  /// size - compensates for the systematic outward bias
+  /// `DocumentContourDetector`'s mask construction introduces: several of
+  /// its candidate-generation passes dilate/morphologically-close the
+  /// edge mask before tracing a contour from it (to bridge gaps in a
+  /// faint/broken edge - see that file), which necessarily grows the
+  /// traced boundary outward past the true card edge by roughly the
+  /// structuring-element radius used. That's the "sometimes perfect,
+  /// sometimes a little extra edge visible" symptom - it's worse on the
+  /// back specifically because the back's generally flatter, lower-
+  /// contrast design (no photo, less varied printing) falls through to
+  /// the more aggressive fallback passes (`adaptive`/`couleur`/
+  /// `gradient_morpho`, all closed with a 9-15px kernel) more often than
+  /// the front does.
+  CardQuad insetQuad(CardQuad q, double insetFraction) {
+    final cx = (q.topLeft.x + q.topRight.x + q.bottomRight.x + q.bottomLeft.x) / 4;
+    final cy = (q.topLeft.y + q.topRight.y + q.bottomRight.y + q.bottomLeft.y) / 4;
+
+    CardPoint shrink(CardPoint p) => CardPoint(
+          p.x + (cx - p.x) * insetFraction,
+          p.y + (cy - p.y) * insetFraction,
+        );
+
+    return CardQuad(
+      topLeft: shrink(q.topLeft),
+      topRight: shrink(q.topRight),
+      bottomRight: shrink(q.bottomRight),
+      bottomLeft: shrink(q.bottomLeft),
+    );
+  }
+
   /// Scores how "card-like" [q] is: 80% based on how close its aspect
   /// ratio is to [kCardAspectRatio], 20% based on how close its area is
   /// to the ideal fraction of the image it should occupy.

@@ -15,7 +15,7 @@ abstract class DetectionRepository {
   cv.Mat applyRotation(cv.Mat image, int degrees);
   void resetTracking();
 
-  (bool, double) detectBarcodePresence(cv.Mat orientedCard);
+  (bool, double, bool) detectBarcodePresence(cv.Mat orientedCard);
   (bool, double) detectFingerprintPresence(cv.Mat orientedCard);
   (bool, (int, int, int, int)?, double) detectSeparationLine(cv.Mat orientedCard);
 

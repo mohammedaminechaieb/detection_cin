@@ -70,7 +70,7 @@ class DocumentDetectionDataSource {
   (bool, double) detectFlag(cv.Mat orientedCard, cv.Mat templateFlag) =>
       _templateMatcher.detectFlag(orientedCard, templateFlag);
 
-  (bool, double) detectBarcodePresence(cv.Mat orientedCard) =>
+  (bool, double, bool) detectBarcodePresence(cv.Mat orientedCard) =>
       _barcodeDetector.detect(orientedCard);
 
   void disposeBarcodeDetector() => _barcodeDetector.dispose();
