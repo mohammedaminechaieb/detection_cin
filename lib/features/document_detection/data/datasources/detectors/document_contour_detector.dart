@@ -102,6 +102,9 @@ class DocumentContourDetector {
   // contour (i.e. approximated via a min-area rect instead).
   static const double _nonCleanQuadScorePenalty = 0.85;
 
+  // See `CardQuadGeometry.insetQuad`'s doc.
+  static const double _outwardBiasInsetFraction = 0.015;
+
   void resetTracking() {
     _trackedQuad = null;
   }
@@ -244,12 +247,19 @@ class DocumentContourDetector {
     final best = candidates.first;
     if (best.score < kMinDetectionScore) return null;
 
-    final finalQuad = CardQuad(
+    final rawQuad = CardQuad(
       topLeft: CardPoint(best.quad.topLeft.x + cropX1, best.quad.topLeft.y + cropY1),
       topRight: CardPoint(best.quad.topRight.x + cropX1, best.quad.topRight.y + cropY1),
       bottomRight: CardPoint(best.quad.bottomRight.x + cropX1, best.quad.bottomRight.y + cropY1),
       bottomLeft: CardPoint(best.quad.bottomLeft.x + cropX1, best.quad.bottomLeft.y + cropY1),
     );
+    // See `CardQuadGeometry.insetQuad`'s doc for why this exists - the
+    // "extra edge visible in the crop" symptom. Applied uniformly to
+    // every pass (not just the more-dilated fallback ones) for
+    // simplicity; a starting, conservative value - tune once verified
+    // against real captures, particularly on the back (see that doc for
+    // why it's worse there).
+    final finalQuad = _geometry.insetQuad(rawQuad, _outwardBiasInsetFraction);
 
     return DetectedDocument(isDetected: true, quad: finalQuad, score: best.score, source: best.source);
   }
@@ -415,6 +425,26 @@ class DocumentContourDetector {
     );
   }
 
+  // A candidate whose area exceeds this fraction of the frame is rejected
+  // outright, before scoring - a real CIN held up to the camera at a
+  // normal capture distance never plausibly fills this much of the frame
+  // (`CardQuadGeometry.quadScore`'s own `idealArea` target is 0.30, less
+  // than half this). This exists specifically to guard against the
+  // "captured image was the entire screen" failure: `touchesFrameBorder`
+  // only rejects a candidate if *every* corner sits within 1.5% of the
+  // frame edge, so a large background region (e.g. the table/surface
+  // itself, mis-segmented by the light-on-light fallback passes below -
+  // `adaptive`/`couleur`/`gradient_morpho` - when the real card edge
+  // can't be found at all) that has a few percent of margin on each side
+  // was never being caught by that check. If its aspect ratio happened to
+  // be roughly card-like by coincidence, `quadScore` could still score it
+  // high enough to pass `kMinDetectionScore` and get tracked as "the
+  // card" - which is exactly the bug: a bad detection here doesn't just
+  // fail, it confidently locks onto the wrong thing, and everything
+  // downstream (analysis, capture, the stabilizer) has no way to tell the
+  // difference from a real card once it's been accepted as a candidate.
+  static const double _maxAreaFraction = 0.75;
+
   void _collectCandidatesFromMask(
     cv.Mat mask,
     String maskName,
@@ -431,6 +461,7 @@ class DocumentContourDetector {
     for (final c in top10) {
       final area = cv.contourArea(c);
       if (area < _minContourAreaFraction * imageArea) continue;
+      if (area > _maxAreaFraction * imageArea) continue;
 
       final perimeter = cv.arcLength(c, true);
       final approx = cv.approxPolyDP(c, _polygonApproxEpsilonFraction * perimeter, true);
@@ -451,6 +482,7 @@ class DocumentContourDetector {
 
       final fittedArea = _geometry.quadArea(quad);
       if (fittedArea <= 0) continue;
+      if (fittedArea > _maxAreaFraction * imageArea) continue;
       if (area / fittedArea < _minContourToQuadAreaRatio) continue;
 
       if (_geometry.touchesFrameBorder(quad, imgW, imgH)) continue;
