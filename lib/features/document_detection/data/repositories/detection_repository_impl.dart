@@ -40,7 +40,7 @@ class DetectionRepositoryImpl implements DetectionRepository {
       dataSource.applyRotation(image, degrees);
 
   @override
-  (bool, double) detectBarcodePresence(cv.Mat orientedCard) =>
+  (bool, double, bool) detectBarcodePresence(cv.Mat orientedCard) =>
       dataSource.detectBarcodePresence(orientedCard);
 
   @override
