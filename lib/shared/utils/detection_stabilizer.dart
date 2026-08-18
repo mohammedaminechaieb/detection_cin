@@ -7,8 +7,18 @@
 /// 'face', 'logo'), so a single instance can smooth several signals at once.
 class DetectionStabilizer {
   DetectionStabilizer({
-    this.framesToConfirm = 3,
-    this.framesToReset = 2,
+    // Lowered from 3: this delay is on the critical path for every
+    // single content check (border, face, logo, flag, barcode,
+    // fingerprint) before `AutocaptureViewModel` even starts counting
+    // its own `requiredGoodFrames` - each layer's debounce is reasonable
+    // in isolation, but they compound sequentially into the "feels like
+    // it's taking too long" complaint. 2 (matching what `separation_line`
+    // already overrode to individually - see
+    // `DetectionIsolateWorker._analyzeBack`) still requires agreement
+    // across 2 consecutive frames, so a single-frame false positive still
+    // can't confirm a signal on its own.
+    this.framesToConfirm = 2,
+    this.framesToReset = 3,
   });
 
   final int framesToConfirm;
