@@ -106,12 +106,15 @@ class _ResultPreviewScreenState extends State<ResultPreviewScreen> {
     });
 
     try {
-      // The print page may still be composing (it's the slower, second
-      // postprocessing stage - see `PostprocessingViewModel`). Saving
-      // doesn't need to block on it: if it isn't ready yet, fall back to
-      // the enhanced front/back so "Valider" never hangs waiting on the
-      // print layout specifically, which the person isn't looking at
-      // when they tap this button.
+      // The print page is guaranteed composed by this point - the
+      // "Valider" button (see `build`) is now disabled until
+      // `!processing.isComposingPrintPage`, so this is no longer a
+      // best-effort fallback for the common case. `processed.front` is
+      // kept as a last-resort guard only, in case `printPageError` fired
+      // (composition failed outright rather than just being slow) - in
+      // that case there is no print page to fall back to other than the
+      // raw front, and `_PrintPageSection` already surfaces the error to
+      // the user before they'd get this far.
       final printPage = processed.printPage ?? processed.front;
       final saved = await widget.storageService.save(
         rawFront: card.front!,
@@ -225,13 +228,19 @@ class _ResultPreviewScreenState extends State<ResultPreviewScreen> {
               padding: const EdgeInsets.all(AppSpacing.md),
               child: Consumer<PostprocessingViewModel>(
                 builder: (context, processing, _) {
-                  // Deliberately does NOT wait on `processing.
-                  // isComposingPrintPage` - the print page is a
-                  // secondary artifact of the enhanced front/back, and
-                  // making the person wait for it before they can even
-                  // tap "Valider" was adding a delay unrelated to what
-                  // they're actually reviewing on this screen.
-                  final isReady = !processing.isProcessing && processing.result != null;
+                  // Now requires the print page to have finished composing
+                  // (`!processing.isComposingPrintPage`) before "Valider"
+                  // enables. Previously this only checked `processing.
+                  // result != null`, which goes true as soon as
+                  // front/back enhancement finishes - well before the
+                  // (slower) print-page composition does - so a fast tap
+                  // could confirm while `processed.printPage` was still
+                  // null, silently saving the unwarped raw front image as
+                  // the "print page" (see `_confirm`'s fallback) with no
+                  // way to re-save once composition later completed.
+                  final isReady = !processing.isProcessing &&
+                      !processing.isComposingPrintPage &&
+                      processing.result != null;
                   return Row(
                     children: [
                       Expanded(
