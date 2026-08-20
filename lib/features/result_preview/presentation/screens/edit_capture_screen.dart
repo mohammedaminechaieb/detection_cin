@@ -71,10 +71,21 @@ class _EditCaptureScreenState extends State<EditCaptureScreen> {
     _decodeImage();
   }
 
+  @override
+  void dispose() {
+    // Also covered by the fix above: the final decoded image was never
+    // released when this screen closed at all, rotated or not.
+    _decodedImage?.dispose();
+    super.dispose();
+  }
+
   Future<void> _decodeImage() async {
     final codec = await ui.instantiateImageCodec(_currentBytes);
     final frame = await codec.getNextFrame();
-    if (!mounted) return;
+    if (!mounted) {
+      frame.image.dispose();
+      return;
+    }
     setState(() {
       _decodedImage = frame.image;
       _resetCornersToFull();
@@ -109,8 +120,21 @@ class _EditCaptureScreenState extends State<EditCaptureScreen> {
 
       final codec = await ui.instantiateImageCodec(newBytes);
       final frame = await codec.getNextFrame();
-      if (!mounted) return;
+      if (!mounted) {
+        frame.image.dispose();
+        return;
+      }
 
+      // Dispose the previous decoded image before replacing it - this
+      // was the actual native-memory leak: `_rotate90` decoded a new
+      // `ui.Image` into `_decodedImage` on every call without ever
+      // disposing what it was replacing (only the intermediate
+      // `image`-package buffer, via `decoded`/`rotated` above, was
+      // cleaned up). A user rotating a card several times while
+      // adjusting orientation leaked several MB of native pixel buffer
+      // per rotation before the engine happened to reclaim it via GC
+      // finalizers.
+      final previousImage = _decodedImage;
       setState(() {
         _currentBytes = newBytes;
         _decodedImage = frame.image;
@@ -120,6 +144,7 @@ class _EditCaptureScreenState extends State<EditCaptureScreen> {
         _resetCornersToFull();
         _isProcessing = false;
       });
+      previousImage?.dispose();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -201,6 +226,19 @@ class _EditCaptureScreenState extends State<EditCaptureScreen> {
       return;
     }
 
+    // Corner drags are clamped per-axis to image bounds (`onPanUpdate`
+    // above), but nothing checked the resulting quad for degeneracy
+    // (near-zero area) or self-intersection (corners dragged past each
+    // other) before sending it to the native warp routine - either can
+    // produce an undefined or garbage result there. Reject up front with
+    // a clear, actionable error instead.
+    if (!_isValidQuad(_corners)) {
+      setState(() {
+        _error = 'Cadrage invalide : les coins se croisent ou délimitent une zone trop petite.';
+      });
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
       _error = null;
@@ -229,6 +267,56 @@ class _EditCaptureScreenState extends State<EditCaptureScreen> {
         _isProcessing = false;
       });
     }
+  }
+
+  /// Rejects quads that are degenerate (near-zero area) or self-
+  /// intersecting (a corner dragged across an adjacent edge) before
+  /// they're sent to the native warp routine, which assumes a simple,
+  /// reasonably-sized quadrilateral and doesn't validate that itself.
+  bool _isValidQuad(List<Offset> corners) {
+    if (corners.length != 4) return false;
+
+    // Minimum area as a fraction of the full image - well below any
+    // realistic crop, just enough to catch corners collapsed onto (or
+    // very near) each other.
+    const minAreaFraction = 0.01;
+    final image = _decodedImage;
+    if (image == null) return false;
+    final imageArea = image.width * image.height;
+
+    final area = _polygonArea(corners).abs();
+    if (area < imageArea * minAreaFraction) return false;
+
+    // A simple (non-self-intersecting) quad's only possible crossings are
+    // between opposite edge pairs - adjacent edges share an endpoint and
+    // can't "cross" in the relevant sense.
+    if (_segmentsIntersect(corners[0], corners[1], corners[2], corners[3])) return false;
+    if (_segmentsIntersect(corners[1], corners[2], corners[3], corners[0])) return false;
+
+    return true;
+  }
+
+  double _polygonArea(List<Offset> points) {
+    var sum = 0.0;
+    for (var i = 0; i < points.length; i++) {
+      final p1 = points[i];
+      final p2 = points[(i + 1) % points.length];
+      sum += p1.dx * p2.dy - p2.dx * p1.dy;
+    }
+    return sum / 2.0;
+  }
+
+  bool _segmentsIntersect(Offset a1, Offset a2, Offset b1, Offset b2) {
+    double cross(Offset o, Offset p, Offset q) =>
+        (p.dx - o.dx) * (q.dy - o.dy) - (p.dy - o.dy) * (q.dx - o.dx);
+
+    final d1 = cross(b1, b2, a1);
+    final d2 = cross(b1, b2, a2);
+    final d3 = cross(a1, a2, b1);
+    final d4 = cross(a1, a2, b2);
+
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+        ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
   }
 
   @override
