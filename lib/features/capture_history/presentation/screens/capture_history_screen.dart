@@ -61,6 +61,32 @@ class _CaptureHistoryScreenState extends State<CaptureHistoryScreen> {
   }
 
   Future<void> _share(SavedCapture capture) async {
+    // Unlike delete, sharing a captured ID image via the OS share sheet
+    // previously had no confirmation step at all - a single mistaken tap
+    // could hand a government ID image to whatever app/contact the share
+    // sheet defaults to. Confirming first brings it in line with delete's
+    // existing safeguard for what's an equally consequential action on
+    // sensitive personal data.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Text('Partager cette carte ?'),
+        content: const Text(
+          'Vous êtes sur le point de partager une pièce d\'identité. '
+          'Vérifiez le destinataire avant de continuer.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Annuler')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Partager'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
     await SharePlus.instance.share(
       ShareParams(
         files: [
