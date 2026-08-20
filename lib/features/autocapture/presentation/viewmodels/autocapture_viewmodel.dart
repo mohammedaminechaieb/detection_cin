@@ -92,10 +92,22 @@ class AutocaptureViewModel extends ChangeNotifier {
 
     _goodStreak++;
     if (_goodStreak >= requiredGoodFrames) {
-      _state = CaptureState.captured; // latch avant le callback
+      // Pass through `triggerCapture` first, as documented on
+      // [CaptureState] and on [onCaptureReady] above - jumping straight
+      // to `captured` skipped this signal state entirely, so any UI
+      // written against the documented contract (act on
+      // `triggerCapture`, *then* transition to `captured`) never
+      // actually saw it fire. Both transitions still happen
+      // synchronously within this call, so `onCaptureReady` (fired while
+      // `state == triggerCapture`) and the final latch to `captured`
+      // happen in the same frame as before - only the intermediate state
+      // notification is new.
+      _state = CaptureState.triggerCapture;
       _issues = const QualityIssues();
       notifyListeners();
       onCaptureReady?.call();
+      _state = CaptureState.captured; // latch
+      notifyListeners();
       return;
     }
 

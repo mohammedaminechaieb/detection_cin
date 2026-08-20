@@ -24,7 +24,7 @@ class EnhanceCapturedCard {
   }) {
     final enhancer = CardImageEnhancer(
       contrast: settings.contrastLevel.factor,
-      sharpenRadius: settings.sharpenEnabled ? 2 : 0,
+      sharpenEnabled: settings.sharpenEnabled,
       grayscale: settings.grayscale,
     );
 

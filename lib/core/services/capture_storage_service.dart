@@ -52,7 +52,21 @@ class GallerySaveDeniedException implements Exception {
 /// they took: the Gallery/Photos app, not buried in app-private storage
 /// they'd need a file manager to reach.
 class CaptureStorageService {
-  const CaptureStorageService();
+  const CaptureStorageService({this.maxRetainedCaptures = 20});
+
+  /// Upper bound on how many past captures [save] keeps on disk before
+  /// pruning the oldest. Previously unbounded: every capture and re-save
+  /// wrote a fresh full-resolution image with nothing ever removing old
+  /// ones, so a user scanning several ID cards over weeks accumulated an
+  /// ever-growing set of full-resolution government ID images on-device -
+  /// a real exposure surface on a lost, resold, or cloud-backed-up phone.
+  ///
+  /// This is a stopgap default, not a substitute for a real product
+  /// decision on retention (auto-purge after export? explicit expiry?
+  /// user-visible storage screen? - see the audit's suggested order of
+  /// work). It at least puts a ceiling on exposure in the meantime. Pass
+  /// `0` to disable pruning entirely (not recommended).
+  final int maxRetainedCaptures;
 
   Future<SavedCapture> save({
     required Uint8List rawFront,
@@ -66,9 +80,14 @@ class CaptureStorageService {
     // Sortable-by-name timestamp folder (e.g. 20260813_143205123) so a
     // future "browse past captures" feature can just list+sort
     // directories without parsing anything.
-    final folderName = _timestampFolderName(now);
-    final captureDir = Directory('${documentsDir.path}/captures/$folderName');
-    await captureDir.create(recursive: true);
+    //
+    // Millisecond-resolution names can collide if two saves land in the
+    // same millisecond (unlikely for a user-driven capture flow, but not
+    // impossible - e.g. a retried save after a transient failure). Rather
+    // than silently overwrite the earlier folder's contents, disambiguate
+    // with a numeric suffix so both captures are kept as distinct,
+    // retrievable records.
+    final captureDir = await _createUniqueCaptureDir(documentsDir.path, now);
 
     final frontPath = '${captureDir.path}/front_raw.png';
     final backPath = '${captureDir.path}/back_raw.png';
@@ -84,6 +103,15 @@ class CaptureStorageService {
       File(printPagePath).writeAsBytes(printPage, flush: true),
     ]);
 
+    // Best-effort: a pruning failure (e.g. a locked file on some
+    // platform) shouldn't turn a successful save into a reported
+    // failure - the capture is already safely on disk at this point.
+    try {
+      await _pruneOldCaptures();
+    } catch (_) {
+      // Ignored - see comment above.
+    }
+
     return SavedCapture(
       directory: captureDir.path,
       frontPath: enhancedFrontPath,
@@ -91,6 +119,31 @@ class CaptureStorageService {
       printPagePath: printPagePath,
       savedAt: now,
     );
+  }
+
+  Future<Directory> _createUniqueCaptureDir(String documentsDirPath, DateTime time) async {
+    final baseName = _timestampFolderName(time);
+    var candidate = Directory('$documentsDirPath/captures/$baseName');
+    var attempt = 1;
+    while (await candidate.exists()) {
+      candidate = Directory('$documentsDirPath/captures/${baseName}_$attempt');
+      attempt++;
+    }
+    await candidate.create(recursive: true);
+    return candidate;
+  }
+
+  /// Deletes the oldest capture folders beyond [maxRetainedCaptures],
+  /// newest-first order matching [listCaptures]. Called once per [save]
+  /// so storage stays bounded without needing a separate scheduled job.
+  Future<void> _pruneOldCaptures() async {
+    if (maxRetainedCaptures <= 0) return;
+    final captures = await listCaptures();
+    if (captures.length <= maxRetainedCaptures) return;
+
+    for (final stale in captures.skip(maxRetainedCaptures)) {
+      await deleteCapture(stale.directory);
+    }
   }
 
   /// Exports the enhanced front/back images and the composed print page
@@ -174,7 +227,12 @@ class CaptureStorageService {
   }
 
   DateTime? _parseTimestampFolderName(String name) {
-    final match = RegExp(r'^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})(\d{3})$').firstMatch(name);
+    // Trailing `_N` (see `_createUniqueCaptureDir`) is a disambiguating
+    // suffix for same-millisecond collisions, not part of the timestamp
+    // itself - stripped before parsing so those folders still show up in
+    // `listCaptures()` instead of being silently skipped as unparseable.
+    final match =
+        RegExp(r'^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})(\d{3})(?:_\d+)?$').firstMatch(name);
     if (match == null) return null;
     return DateTime(
       int.parse(match.group(1)!),

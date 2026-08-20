@@ -19,8 +19,6 @@ passed in as booleans; it has no detection logic of its own.
 
 ## Notes
 
-- `domain/entities/camera_frame.dart` defines a `CameraFrame` entity that
-  isn't currently used anywhere - flagged in the root `TODO.md`.
 - Camera permission is requested via `permission_handler`;
   `CameraPermissionDeniedException` / `NoCameraAvailableException` are
   thrown so the UI layer can surface a specific error message.

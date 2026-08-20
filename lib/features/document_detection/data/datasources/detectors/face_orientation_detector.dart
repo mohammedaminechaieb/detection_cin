@@ -84,4 +84,14 @@ class FaceOrientationDetector {
       bestBox,
     );
   }
+
+  /// Releases the native Haar cascade classifier. Previously there was no
+  /// way to do this at all - the isolate worker just called `Isolate.
+  /// exit()` on shutdown, leaking the cascade's native memory every time
+  /// the camera screen (and therefore the worker) was re-entered. Safe to
+  /// call more than once.
+  void dispose() {
+    _faceCascade?.dispose();
+    _faceCascade = null;
+  }
 }

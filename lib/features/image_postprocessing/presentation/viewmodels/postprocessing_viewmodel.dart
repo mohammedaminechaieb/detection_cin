@@ -41,11 +41,24 @@ class PostprocessingViewModel extends ChangeNotifier {
   EnhancementSettings _settings = EnhancementSettings.defaults;
   EnhancementSettings get settings => _settings;
 
+  // Bumped on every `process()` call (i.e. every capture/re-edit cycle)
+  // and captured by `_composePrintPage` before it awaits `compute()`.
+  // Without this, editing front then immediately editing it back again
+  // starts two overlapping compositions - both eventually resolve and
+  // both write into `_result` via `copyWith`, so whichever finishes
+  // *last* wins regardless of which edit it was actually composing for.
+  // Comparing the captured generation against the current one after the
+  // await lets a stale composition detect that a newer `process()` call
+  // has since started and discard its own result instead of overwriting
+  // the result that matches what's currently displayed.
+  int _generation = 0;
+
   Future<void> process(
     Uint8List frontPng,
     Uint8List backPng, {
     EnhancementSettings? settings,
   }) async {
+    final generation = ++_generation;
     _settings = settings ?? _settings;
     _isProcessing = true;
     _error = null;
@@ -59,10 +72,12 @@ class PostprocessingViewModel extends ChangeNotifier {
         _enhanceInBackground,
         _EnhanceInput(frontPng, backPng, _settings),
       );
+      if (generation != _generation) return; // superseded while awaiting
       enhancedFront = enhanced.$1;
       enhancedBack = enhanced.$2;
       _result = ProcessedCard(front: enhancedFront, back: enhancedBack);
     } catch (e) {
+      if (generation != _generation) return; // superseded while awaiting
       _error = e.toString();
       _isProcessing = false;
       notifyListeners();
@@ -75,10 +90,10 @@ class PostprocessingViewModel extends ChangeNotifier {
     // Print-page composition starts right after enhancement finishes,
     // but is not awaited by `process()` itself - the caller (and the UI)
     // already has `result.front`/`result.back` to show at this point.
-    _composePrintPage(enhancedFront, enhancedBack);
+    _composePrintPage(enhancedFront, enhancedBack, generation);
   }
 
-  Future<void> _composePrintPage(Uint8List enhancedFront, Uint8List enhancedBack) async {
+  Future<void> _composePrintPage(Uint8List enhancedFront, Uint8List enhancedBack, int generation) async {
     _isComposingPrintPage = true;
     notifyListeners();
 
@@ -87,18 +102,23 @@ class PostprocessingViewModel extends ChangeNotifier {
         _composeInBackground,
         _ComposeInput(enhancedFront, enhancedBack),
       );
+      if (generation != _generation) return; // superseded - see `_generation` doc above
       _result = _result?.copyWith(printPage: printPage);
     } catch (e) {
+      if (generation != _generation) return;
       _printPageError = e.toString();
     } finally {
-      _isComposingPrintPage = false;
-      notifyListeners();
+      if (generation == _generation) {
+        _isComposingPrintPage = false;
+        notifyListeners();
+      }
     }
   }
 
   /// À appeler quand l'utilisateur relance la capture (bouton "Reprendre"),
   /// pour ne pas garder un résultat périmé affiché.
   void reset() {
+    _generation++; // invalidate any composition still in flight
     _result = null;
     _error = null;
     _printPageError = null;
