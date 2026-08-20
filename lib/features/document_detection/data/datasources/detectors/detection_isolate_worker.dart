@@ -60,19 +60,36 @@ class _Envelope {
 /// synchronous approach did. A *persistent* isolate that loads all of
 /// that exactly once and then just receives frames avoids all of that.
 class DetectionIsolateWorker {
-  DetectionIsolateWorker._(this._sendPort, this._responses);
+  DetectionIsolateWorker._(
+    this._sendPort,
+    this._responsePort,
+    this._isolate,
+    this._errorPort,
+    this._exitPort,
+  ) : _responses = _responsePort.asBroadcastStream();
 
   final SendPort _sendPort;
+  final ReceivePort _responsePort;
+  final Isolate _isolate;
+  final ReceivePort _errorPort;
+  final ReceivePort _exitPort;
   final Stream<dynamic> _responses;
   int _nextId = 0;
 
-  /// True while a frame is in flight to the worker - `DetectionViewModel`
-  /// uses this indirectly (it only calls [analyze] when not already
-  /// awaiting one) so frames are naturally paced by how fast the worker
-  /// can actually process them, the same throttling role `_busy` played
-  /// in the old synchronous `onFrame`.
-  bool get isBusy => _busy;
-  bool _busy = false;
+  /// Completes (with an error) if the worker isolate dies unexpectedly -
+  /// wired via the `onError`/`onExit` ports passed to `Isolate.spawn` in
+  /// [spawn], and listened to for the worker's entire lifetime (not just
+  /// during startup). Any request awaiting a reply when that happens
+  /// fails fast instead of hanging forever, since a dead isolate will
+  /// never send one.
+  final Completer<void> _isolateDied = Completer<void>();
+
+  /// How long a single request will wait for a reply before giving up.
+  /// Generous relative to normal per-frame processing time (which is on
+  /// the order of tens of milliseconds), but still short enough that a
+  /// wedged worker surfaces as a visible error instead of an indefinite
+  /// hang.
+  static const Duration _requestTimeout = Duration(seconds: 10);
 
   static Future<DetectionIsolateWorker> spawn({
     required String cascadePath,
@@ -80,7 +97,14 @@ class DetectionIsolateWorker {
     required Uint8List flagBytes,
   }) async {
     final initPort = ReceivePort();
-    await Isolate.spawn(_workerMain, initPort.sendPort);
+    final errorPort = ReceivePort();
+    final exitPort = ReceivePort();
+    final isolate = await Isolate.spawn(
+      _workerMain,
+      initPort.sendPort,
+      onError: errorPort.sendPort,
+      onExit: exitPort.sendPort,
+    );
 
     // First message back from the worker is its SendPort, so we can talk
     // to it - standard two-way isolate handshake.
@@ -90,17 +114,52 @@ class DetectionIsolateWorker {
     final responsePort = ReceivePort();
     workerSendPort.send(responsePort.sendPort);
 
-    final worker = DetectionIsolateWorker._(workerSendPort, responsePort.asBroadcastStream());
+    final worker = DetectionIsolateWorker._(workerSendPort, responsePort, isolate, errorPort, exitPort);
+
+    // Any uncaught error or unexpected exit on the worker isolate fails
+    // every in-flight (and future) request instead of leaving them to
+    // hang forever - this is what actually closes the "isolate dies /
+    // reply is lost -> future never completes" gap, since a dead isolate
+    // will never send the `_Envelope` reply `_request` is waiting on.
+    // These listeners stay live for the worker's whole lifetime (closed
+    // only in `dispose`), not just during startup - a hang or crash that
+    // happens minutes into normal use needs to be caught too.
+    errorPort.listen((error) {
+      if (!worker._isolateDied.isCompleted) {
+        worker._isolateDied.completeError(
+          StateError('Le worker de détection a rencontré une erreur fatale : $error'),
+        );
+      }
+    });
+    exitPort.listen((_) {
+      if (!worker._isolateDied.isCompleted) {
+        worker._isolateDied.completeError(
+          StateError('Le worker de détection s\'est arrêté de manière inattendue.'),
+        );
+      }
+    });
 
     // Block until the worker confirms it's finished loading the cascade
     // + templates, so `analyze`/`capture` are never called before the
-    // worker is actually ready.
+    // worker is actually ready. Distinguishes `_WorkerReady` from
+    // `_WorkerError` - previously this only checked `message.id == -1`
+    // regardless of payload type, so a cascade/template load failure at
+    // startup still resolved `spawn()` as if the worker were healthy,
+    // and every subsequent frame threw once the (never-initialized)
+    // detectors were used.
     final ready = Completer<void>();
     late final StreamSubscription sub;
     sub = worker._responses.listen((message) {
       if (message is _Envelope && message.id == -1) {
-        ready.complete();
         sub.cancel();
+        final payload = message.payload;
+        if (payload is _WorkerError) {
+          ready.completeError(StateError(
+            'Échec de l\'initialisation du worker de détection : ${payload.error}',
+          ));
+        } else {
+          ready.complete();
+        }
       }
     });
 
@@ -109,7 +168,7 @@ class DetectionIsolateWorker {
       _WorkerInit(cascadePath: cascadePath, logoBytes: logoBytes, flagBytes: flagBytes),
     ));
 
-    await ready.future;
+    await Future.any([ready.future, worker._isolateDied.future]);
     return worker;
   }
 
@@ -123,7 +182,6 @@ class DetectionIsolateWorker {
   }
 
   Future<T> _request<T>(Object payload) async {
-    _busy = true;
     final id = _nextId++;
     final completer = Completer<T>();
 
@@ -143,14 +201,55 @@ class DetectionIsolateWorker {
     _sendPort.send(_Envelope(id, payload));
 
     try {
-      return await completer.future;
+      // Races the normal reply against isolate death and a hard timeout,
+      // so a stuck or vanished worker fails this request instead of
+      // leaving it (and `DetectionViewModel._busy`) hung forever with no
+      // recovery path.
+      return await Future.any<T>([
+        completer.future,
+        _isolateDied.future.then((_) => throw StateError('Worker de détection indisponible.')),
+      ]).timeout(
+        _requestTimeout,
+        onTimeout: () => throw TimeoutException(
+          'Le worker de détection n\'a pas répondu à temps.',
+          _requestTimeout,
+        ),
+      );
     } finally {
-      _busy = false;
+      sub.cancel();
     }
   }
 
   void dispose() {
+    // Graceful shutdown: `_WorkerShutdown` makes the worker isolate
+    // dispose its own native OpenCV handles (cascade classifier, logo/
+    // flag templates - see `_workerMain`'s handling of id == -2) before
+    // calling `Isolate.exit()` itself.
     _sendPort.send(_Envelope(-2, _WorkerShutdown()));
+    // Closing this main-isolate ReceivePort (not to be confused with the
+    // worker-side `commandPort` closed via `Isolate.exit()`) is what
+    // actually stops it accumulating: without it, every spawn/dispose
+    // cycle (e.g. re-entering the camera screen) left the previous
+    // port open and listening forever.
+    _responsePort.close();
+
+    // Fallback only: if the worker hasn't actually exited shortly after
+    // being asked to (stuck mid-frame, lost the shutdown message, etc.),
+    // force it down rather than leaking the isolate forever. Deliberately
+    // NOT an immediate kill right away - that could race ahead of the
+    // graceful shutdown above and tear the isolate down before it
+    // disposes its native handles, reintroducing the very leak this
+    // change fixes. `_isolateDied` is already completed by the exit-port
+    // listener in [spawn] once the graceful path finishes, so the normal
+    // case exits this early via that check and never actually kills
+    // anything.
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!_isolateDied.isCompleted) {
+        _isolate.kill(priority: Isolate.immediate);
+      }
+      _errorPort.close();
+      _exitPort.close();
+    });
   }
 }
 
@@ -202,16 +301,40 @@ void _workerMain(SendPort initSendPort) {
 
     try {
       if (envelope.id == -1) {
-        final init = envelope.payload as _WorkerInit;
-        dataSource = DocumentDetectionDataSource(init.cascadePath);
-        repository = DetectionRepositoryImpl(dataSource!);
-        logoTemplate = repository!.loadTemplateFromBytes(init.logoBytes);
-        flagTemplate = repository!.loadTemplateFromBytes(init.flagBytes);
-        replyPort.send(const _Envelope(-1, _WorkerReady()));
+        try {
+          final init = envelope.payload as _WorkerInit;
+          dataSource = DocumentDetectionDataSource(init.cascadePath);
+          repository = DetectionRepositoryImpl(dataSource!);
+          logoTemplate = repository!.loadTemplateFromBytes(init.logoBytes);
+          flagTemplate = repository!.loadTemplateFromBytes(init.flagBytes);
+          replyPort.send(const _Envelope(-1, _WorkerReady()));
+        } catch (e) {
+          // Init failed partway through (e.g. cascade loaded fine but a
+          // template didn't) - clean up whatever *did* get allocated
+          // before reporting failure, since a failed `spawn()` means
+          // `DetectionIsolateWorker.dispose()` never gets called (the
+          // caller never got a worker reference to call it on), so this
+          // is the only place that partial state would otherwise get
+          // cleaned up.
+          dataSource?.dispose();
+          logoTemplate?.dispose();
+          flagTemplate?.dispose();
+          replyPort.send(_Envelope(-1, _WorkerError(e.toString())));
+        }
         return;
       }
 
       if (envelope.id == -2) {
+        // Release every native OpenCV handle this isolate owns before
+        // tearing down - `Isolate.exit()` unwinds the isolate but does
+        // nothing to free native (non-Dart-heap) memory itself, so
+        // skipping this leaked the face cascade classifier plus the
+        // logo/flag templates on every camera-screen re-entry (each of
+        // which spawns a fresh worker).
+        dataSource?.dispose();
+        logoTemplate?.dispose();
+        flagTemplate?.dispose();
+        commandPort.close();
         Isolate.exit();
       }
 

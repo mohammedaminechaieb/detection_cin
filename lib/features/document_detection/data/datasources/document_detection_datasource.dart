@@ -75,6 +75,16 @@ class DocumentDetectionDataSource {
 
   void disposeBarcodeDetector() => _barcodeDetector.dispose();
 
+  /// Releases every native resource owned by this data source: the face
+  /// cascade classifier and the barcode detector. Templates (logo/flag)
+  /// are owned by the isolate worker itself (loaded once from
+  /// `_WorkerInit` in `DetectionIsolateWorker._workerMain`), not here, so
+  /// they're disposed separately by the caller.
+  void dispose() {
+    _faceDetector.dispose();
+    disposeBarcodeDetector();
+  }
+
   (bool, double) detectFingerprintPresence(cv.Mat orientedCard) =>
       _fingerprintDetector.detect(orientedCard);
 
