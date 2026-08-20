@@ -24,8 +24,6 @@ class CameraScreen extends StatefulWidget {
 }
 
 class _CameraScreenState extends State<CameraScreen> {
-  CameraController? _streamedController;
-
   @override
   void initState() {
     super.initState();
@@ -46,13 +44,18 @@ class _CameraScreenState extends State<CameraScreen> {
         };
       }
       controller.startImageStream(detectionViewModel.onFrame);
-      _streamedController = controller;
     }
   }
 
   @override
   void dispose() {
-    _streamedController?.stopImageStream();
+    // Deliberately does NOT call `_streamedController?.stopImageStream()`
+    // here anymore - that used to race independently against
+    // `CameraViewModel.dispose()` -> `CameraService.dispose()` disposing
+    // the controller, with no guaranteed ordering between the two. Now
+    // `CameraService.dispose()` stops the stream and awaits that before
+    // disposing the controller itself, so there's a single place that
+    // ordering is enforced instead of two independent call sites racing.
     context.read<CapturedCardsViewModel>().removeListener(_maybeShowPreview);
     super.dispose();
   }

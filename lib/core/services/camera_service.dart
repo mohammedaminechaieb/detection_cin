@@ -54,8 +54,29 @@ class CameraService {
   }
 
   Future<void> dispose() async {
-    await _controller?.dispose();
+    final controller = _controller;
     _controller = null;
+    if (controller == null) return;
+
+    // Stop the image stream and await it *before* disposing the
+    // controller. Previously these two steps were split across two
+    // different call sites (`CameraScreen.dispose()` called
+    // `stopImageStream()` fire-and-forget, while this method disposed
+    // the controller independently, also fire-and-forget) with no
+    // ordering between them - a frame in flight when the camera screen
+    // was popped could have its callback deliver into an
+    // already-disposed controller/view-model tree. Doing both steps here,
+    // sequentially, in the same async function guarantees the stream is
+    // actually stopped first regardless of what the caller awaits.
+    if (controller.value.isStreamingImages) {
+      try {
+        await controller.stopImageStream();
+      } catch (_) {
+        // Already stopped, or the platform side is in a state where
+        // stopping is a no-op - either way, still proceed to dispose.
+      }
+    }
+    await controller.dispose();
   }
 }
 
