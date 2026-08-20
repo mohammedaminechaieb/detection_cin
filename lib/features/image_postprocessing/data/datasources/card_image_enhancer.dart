@@ -21,7 +21,7 @@ class CardImageEnhancer {
   const CardImageEnhancer({
     this.contrast = 1.15,
     this.brightness = 1.02,
-    this.sharpenRadius = 2,
+    this.sharpenEnabled = true,
     this.sharpenAmount = 0.6,
     this.grayscale = false,
   });
@@ -29,11 +29,12 @@ class CardImageEnhancer {
   final double contrast;
   final double brightness;
 
-  /// Only used as an on/off gate for sharpening (`sharpenRadius > 0` in
-  /// [enhance]) - the fixed 3x3 kernel in [_sharpen] doesn't have a
-  /// variable radius. Kept as a field rather than a bool to avoid
-  /// changing this class's public constructor shape.
-  final int sharpenRadius;
+  /// Whether the unsharp-mask pass in [_sharpen] runs at all. Previously
+  /// this was an `int sharpenRadius` used only as `sharpenRadius > 0` -
+  /// implying a tunable radius that didn't actually exist, since
+  /// [_sharpen]'s kernel is a fixed 3x3 regardless of the value passed.
+  /// A plain bool says what the field actually does.
+  final bool sharpenEnabled;
   final double sharpenAmount;
 
   /// "Scan" mode - converts to grayscale as the last step, after
@@ -47,7 +48,7 @@ class CardImageEnhancer {
     if (decoded == null) return pngBytes;
 
     final contrasted = img.adjustColor(decoded, contrast: contrast, brightness: brightness);
-    final sharpened = sharpenRadius > 0 ? _sharpen(contrasted) : contrasted;
+    final sharpened = sharpenEnabled ? _sharpen(contrasted) : contrasted;
     final result = grayscale ? img.grayscale(sharpened) : sharpened;
 
     return Uint8List.fromList(img.encodePng(result));
@@ -64,8 +65,6 @@ class CardImageEnhancer {
   ///   center   = 1 + 4 * amount
   ///   4-neighbors (up/down/left/right) = -amount
   /// which is a discrete Laplacian-based sharpen scaled by [sharpenAmount].
-  /// `sharpenRadius` is intentionally unused by this 3x3-kernel approach;
-  /// see note on the field below.
   img.Image _sharpen(img.Image original) {
     final a = sharpenAmount;
     final kernel = <double>[
