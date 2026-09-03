@@ -29,7 +29,15 @@ class BackOrientationDetector {
   static const int _kOrientationCorrectionDegrees = 180;
 
   BackOrientationResult detect(cv.Mat warpedCard) {
-    assert(_assertCorrectionStillValid(), '');
+    // `_assertCorrectionStillValid` always returns `true` when it returns
+    // at all - its own internal `assert` is what actually fires (with a
+    // real message) if the convention it checks has drifted. Calling it
+    // like a plain statement inside `assert(() { ...; return true; }())`
+    // (rather than as `assert(fn(), '')` with a dead, unreachable message
+    // argument) makes clear this call itself is only ever compiled into
+    // debug builds, matching how the check it performs is meant to be
+    // used - a development-time sanity check, not a runtime guard.
+    assert(_assertCorrectionStillValid());
 
     BackOrientationResult? best;
     var bestScore = -1;

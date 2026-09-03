@@ -1,6 +1,46 @@
 import 'package:flutter/material.dart';
 import '../../../document_detection/domain/entities/detected_document.dart';
 
+/// A guide-silhouette placement, expressed as fractions of the card
+/// overlay's rendered width/height rather than raw pixels, mirroring how
+/// [Positioned] itself is used below. Exactly one of [left]/[right] and
+/// exactly one of [top]/[bottom] must be set, matching whichever edge
+/// each silhouette is anchored to.
+class _GuideRect {
+  const _GuideRect({
+    this.left,
+    this.right,
+    this.top,
+    this.bottom,
+    required this.width,
+    required this.height,
+  }) : assert(
+          (left == null) != (right == null),
+          'Set exactly one of left/right.',
+        ),
+        assert(
+          (top == null) != (bottom == null),
+          'Set exactly one of top/bottom.',
+        );
+
+  final double? left;
+  final double? right;
+  final double? top;
+  final double? bottom;
+  final double width;
+  final double height;
+
+  Widget position(double w, double h, {required Widget child}) => Positioned(
+        left: left == null ? null : w * left!,
+        right: right == null ? null : w * right!,
+        top: top == null ? null : h * top!,
+        bottom: bottom == null ? null : h * bottom!,
+        width: w * width,
+        height: h * height,
+        child: child,
+      );
+}
+
 class CameraOverlay extends StatelessWidget {
   final CardSide side;
   final bool isBorderDetected;
@@ -69,6 +109,14 @@ class _FrontGuideSilhouettes extends StatelessWidget {
     required this.isFlagDetected,
   });
 
+  // Hand-tuned against the Tunisian CIN's physical front layout (flag
+  // top-left, national emblem top-right, ID photo bottom-left). Named
+  // here - rather than left as bare literals inline - so there's a
+  // single place to look if that physical layout ever needs adjusting.
+  static const _flagRect = _GuideRect(left: 0.03, top: 0.05, width: 0.24, height: 0.30);
+  static const _emblemRect = _GuideRect(right: 0.05, top: 0.05, width: 0.22, height: 0.30);
+  static const _faceRect = _GuideRect(left: 0.03, bottom: 0.06, width: 0.28, height: 0.45);
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -78,25 +126,19 @@ class _FrontGuideSilhouettes extends StatelessWidget {
 
         return Stack(
           children: [
-            Positioned(
-              left: w * 0.03,
-              top: h * 0.05,
-              width: w * 0.24,
-              height: h * 0.30,
+            _flagRect.position(
+              w,
+              h,
               child: _GuideImage(assetPath: 'assets/guides/flag_outline.png', detected: isFlagDetected),
             ),
-            Positioned(
-              right: w * 0.05,
-              top: h * 0.05,
-              width: w * 0.22,
-              height: h * 0.30,
+            _emblemRect.position(
+              w,
+              h,
               child: _GuideImage(assetPath: 'assets/guides/emblem_outline.png', detected: isLogoDetected),
             ),
-            Positioned(
-              left: w * 0.03,
-              bottom: h * 0.06,
-              width: w * 0.28,
-              height: h * 0.45,
+            _faceRect.position(
+              w,
+              h,
               child: _GuideIcon(icon: Icons.person_outline, detected: isFaceDetected),
             ),
           ],
@@ -117,6 +159,14 @@ class _BackGuideSilhouettes extends StatelessWidget {
     required this.isSeparationLineDetected,
   });
 
+  // Hand-tuned against the Tunisian CIN's physical back layout
+  // (fingerprint top-right, separation line and barcode stacked near the
+  // bottom). Named here for the same reason as `_FrontGuideSilhouettes`'s
+  // rects above.
+  static const _fingerprintRect = _GuideRect(left: 0.68, top: 0.28, width: 0.30, height: 0.48);
+  static const _separationLineRect = _GuideRect(left: 0.17, top: 0.775, width: 0.67, height: 0.035);
+  static const _barcodeRect = _GuideRect(left: 0.22, top: 0.82, width: 0.47, height: 0.15);
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
@@ -126,28 +176,19 @@ class _BackGuideSilhouettes extends StatelessWidget {
 
         return Stack(
           children: [
-
-            Positioned(
-              left: w * 0.68,
-              top: h * 0.28,
-              width: w * 0.30,
-              height: h * 0.48,
+            _fingerprintRect.position(
+              w,
+              h,
               child: _GuideIcon(icon: Icons.fingerprint, detected: isFingerprintDetected),
             ),
-
-            Positioned(
-              left: w * 0.17,
-              top: h * 0.775,
-              width: w * 0.67,
-              height: h * 0.035,
+            _separationLineRect.position(
+              w,
+              h,
               child: _GuideBar(detected: isSeparationLineDetected, direction: Axis.horizontal),
             ),
-
-            Positioned(
-              left: w * 0.22,
-              top: h * 0.82,
-              width: w * 0.47,
-              height: h * 0.15,
+            _barcodeRect.position(
+              w,
+              h,
               child: _GuideImage(
                 assetPath: 'assets/guides/barcode_outline.png',
                 detected: isBarcodeDetected,

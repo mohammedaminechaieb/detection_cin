@@ -35,6 +35,22 @@ class BarcodeAreaDetector {
 
     if (!found || points.length < 4) return (false, 0.0, false);
 
+    // `points` is expected to be a flat list of 4-point quads (one per
+    // detected barcode) - `points.length % 4 != 0` would mean a partial
+    // trailing quad. The loop below already ignores any such remainder
+    // (`i + 3 < points.length` stops before a short group), which is
+    // intentional: a partial quad has no well-defined area/orientation to
+    // score, so silently skipping it is preferable to guessing. Asserted
+    // here (debug-only) purely so a future detector backend that returns
+    // a genuinely malformed point list - as opposed to this being the
+    // norm - doesn't fail this silently in release builds too.
+    assert(
+      points.length % 4 == 0,
+      'BarcodeAreaDetector: expected points.length to be a multiple of 4 '
+      '(got ${points.length}); the trailing ${points.length % 4} point(s) '
+      'will be ignored.',
+    );
+
     final cardArea = (orientedCard.rows * orientedCard.cols).toDouble();
     final cardHeight = orientedCard.rows.toDouble();
     double bestRatio = 0.0;

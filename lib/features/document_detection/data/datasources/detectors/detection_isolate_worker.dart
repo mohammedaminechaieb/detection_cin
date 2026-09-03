@@ -132,6 +132,7 @@ class DetectionIsolateWorker {
       }
     });
     exitPort.listen((_) {
+      worker._isolateHasExited = true;
       if (!worker._isolateDied.isCompleted) {
         worker._isolateDied.completeError(
           StateError('Le worker de détection s\'est arrêté de manière inattendue.'),
@@ -221,6 +222,19 @@ class DetectionIsolateWorker {
   }
 
   void dispose() {
+    // Complete `_isolateDied` immediately (if nothing else already has)
+    // so any request currently in-flight through `_request` fails right
+    // away via the `Future.any` race there, instead of sitting on the
+    // full `_requestTimeout` (10s) waiting for a reply that can never
+    // arrive once `_responsePort` is closed below. Previously this only
+    // got completed by the exit/error port listeners (asynchronously,
+    // after the isolate actually finishes tearing down), which left a
+    // window where an in-flight caller had no way to know shutdown was
+    // already in progress.
+    if (!_isolateDied.isCompleted) {
+      _isolateDied.completeError(StateError('Worker de détection arrêté (dispose() appelé).'));
+    }
+
     // Graceful shutdown: `_WorkerShutdown` makes the worker isolate
     // dispose its own native OpenCV handles (cascade classifier, logo/
     // flag templates - see `_workerMain`'s handling of id == -2) before
@@ -239,18 +253,28 @@ class DetectionIsolateWorker {
     // NOT an immediate kill right away - that could race ahead of the
     // graceful shutdown above and tear the isolate down before it
     // disposes its native handles, reintroducing the very leak this
-    // change fixes. `_isolateDied` is already completed by the exit-port
-    // listener in [spawn] once the graceful path finishes, so the normal
-    // case exits this early via that check and never actually kills
-    // anything.
+    // change fixes. Checks `_isolateHasExited` (set by the exit-port
+    // listener in [spawn]), not `_isolateDied.isCompleted` - the latter is
+    // now completed synchronously above, before the isolate has actually
+    // had a chance to exit.
     Future.delayed(const Duration(seconds: 2), () {
-      if (!_isolateDied.isCompleted) {
+      if (!_isolateHasExited) {
         _isolate.kill(priority: Isolate.immediate);
       }
       _errorPort.close();
       _exitPort.close();
     });
   }
+
+  // Set by the exit-port listener in [spawn] once the isolate has
+  // actually finished exiting - kept separate from `_isolateDied`, which
+  // `dispose()` now completes (as an error) synchronously and immediately
+  // to unblock any in-flight `_request` right away. Using
+  // `_isolateDied.isCompleted` for the force-kill check below (as before)
+  // would therefore always read "completed" the instant `dispose()` runs,
+  // regardless of whether the isolate had actually exited yet - silently
+  // disabling the force-kill fallback entirely.
+  bool _isolateHasExited = false;
 }
 
 class _WorkerShutdown {}

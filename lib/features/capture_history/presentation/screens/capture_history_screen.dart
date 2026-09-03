@@ -55,7 +55,15 @@ class _CaptureHistoryScreenState extends State<CaptureHistoryScreen> {
     );
     if (confirmed != true) return;
 
-    await widget.storageService.deleteCapture(capture.directory);
+    try {
+      await widget.storageService.deleteCapture(capture.directory);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Échec de la suppression : $e')),
+      );
+      return;
+    }
     if (!mounted) return;
     _reload();
   }

@@ -7,15 +7,24 @@ import 'package:opencv_dart/opencv_dart.dart' as cv;
 /// de technique que `FingerprintPresenceDetector` (déjà basé sur un
 /// Laplacien) - rien de nouveau côté dépendances.
 ///
-/// NOTE : écrit sans SDK Dart/Flutter disponible dans cet
-/// environnement (même contrainte que le reste du repo jusqu'ici).
-/// Les appels opencv_dart ci-dessous (`cv.laplacian`, `cv.meanStdDev`,
-/// signature de retour en record) correspondent à l'API telle que je
-/// la connais, mais vérifie contre la version épinglée dans
-/// `pubspec.yaml` au premier `flutter pub get` / `flutter analyze` -
-/// c'est le genre de détail qui bouge d'une version à l'autre.
+/// NOTE : signatures vérifiées contre la branche `add-barcode-detector`
+/// du fork `opencv_dart` épinglé dans `pubspec.yaml`
+/// (`cv.laplacian`, `cv.meanStdDev` en record, `CLAHE.apply`) - tout
+/// correspond à ce qui est utilisé ici.
 class BlurDetector {
   const BlurDetector();
+
+  /// CLAHE est un objet natif (pointeur C++ géré via FFI) : il est donc
+  /// alloué une seule fois ici et réutilisé pour chaque frame, plutôt que
+  /// recréé à chaque appel de [sharpnessScore]. Un `CLAHE` recréé à
+  /// chaque frame (comme c'était le cas avant ce fix) fuit de la mémoire
+  /// native à chaque frame analysée : `CLAHE` s'appuie sur un
+  /// `NativeFinalizer` pour être libéré par le GC Dart, mais le wrapper
+  /// Dart lui-même est minuscule (juste un pointeur), donc le GC ne voit
+  /// aucune pression mémoire managée et ne collecte pas assez vite pour
+  /// suivre un flux caméra à 20-30 fps - la mémoire native grossit sans
+  /// borne en pratique. Même correctif que `TemplateMatcher._clahe`.
+  static final cv.CLAHE _clahe = cv.createCLAHE(clipLimit: 2.5, tileGridSize: (8, 8));
 
   /// Sous ce score, la frame est considérée trop floue pour être
   /// capturée. Valeur de départ arbitraire - à recalibrer avec
@@ -60,8 +69,7 @@ class BlurDetector {
     // clipLimit/tileGridSize as `DocumentContourDetector._preprocessGray`
     // for consistency; nothing here is CIN-specific enough to warrant a
     // different tuning.
-    final clahe = cv.createCLAHE(clipLimit: 2.5, tileGridSize: (8, 8));
-    final equalized = clahe.apply(gray);
+    final equalized = _clahe.apply(gray);
 
     final laplacian = cv.laplacian(equalized, cv.MatType.CV_64F);
     // meanStdDev returns a (Scalar mean, Scalar stddev) record - it does

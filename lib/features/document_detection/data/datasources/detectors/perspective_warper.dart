@@ -45,6 +45,8 @@ class PerspectiveWarper {
     final transform = cv.getPerspectiveTransform(src, dst);
     final warped = cv.warpPerspective(image, transform, (outW, outH));
     transform.dispose();
+    src.dispose();
+    dst.dispose();
 
     return warped;
   }
