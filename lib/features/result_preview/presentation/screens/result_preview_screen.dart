@@ -123,9 +123,37 @@ class _ResultPreviewScreenState extends State<ResultPreviewScreen> {
         enhancedBack: processed.back,
         printPage: printPage,
       );
+
+      // Best-effort: the app-private `save` above is the durable, always-
+      // attempted record and is what the rest of the app (capture
+      // history, retention pruning) actually relies on. Exporting to the
+      // device's Photos/Gallery app is a separate, user-facing
+      // convenience on top of that - `saveToGallery` was previously fully
+      // implemented but never called from anywhere, so a scanned card
+      // could never actually end up in the user's own Photos app. A
+      // failure here (permission denied, disk full, ...) is real and
+      // surfaced to the user, but it must not block or roll back the
+      // confirmation flow: the capture is already safely saved by this
+      // point regardless of how this second, best-effort step goes.
+      String? galleryError;
+      try {
+        await widget.storageService.saveToGallery(
+          enhancedFront: processed.front,
+          enhancedBack: processed.back,
+          printPage: printPage,
+        );
+      } catch (e) {
+        galleryError = e is GallerySaveDeniedException
+            ? e.toString()
+            : 'Échec de l\'enregistrement dans la galerie : $e';
+      }
+
       if (!mounted) return;
       await _showSavedConfirmation(saved.directory);
       if (!mounted) return;
+      if (galleryError != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(galleryError)));
+      }
       widget.onConfirmed();
     } catch (e) {
       if (!mounted) return;
