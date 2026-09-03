@@ -7,10 +7,11 @@ import 'package:image/image.dart' as img;
 /// empilées verticalement avec marges - même mise en page qu'un
 /// scanner classique.
 ///
-/// ASSOMPTION NON VÉRIFIÉE : API `package:image` v4.x (`img.Image(width:,
-/// height:)`, `img.fill(image, color:)`, `img.compositeImage(dst, src,
-/// dstX:, dstY:)`, `img.copyResize(image, width:, height:)`). À ajuster
-/// si `flutter analyze` le signale.
+/// Verified against `package:image` v4.9.2 source (pubspec.yaml pins
+/// `image: ^4.3.0`, and this API has been stable across that range):
+/// `img.Image(width:, height:)`, `img.fill(image, color:)`,
+/// `img.compositeImage(dst, src, dstX:, dstY:)`, `img.copyResize(image,
+/// width:, height:)` all match their real named-parameter signatures.
 class PrintPageComposer {
   const PrintPageComposer({
     this.pageWidth = 2480, // A4 portrait @ 300dpi
