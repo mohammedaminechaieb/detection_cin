@@ -13,6 +13,7 @@ import '../../../result_preview/presentation/viewmodels/captured_cards_viewmodel
 import '../../../result_preview/presentation/screens/result_preview_screen.dart';
 import '../../../image_postprocessing/presentation/viewmodels/postprocessing_viewmodel.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/navigation/route_observer.dart';
 import '../../../../shared/components/app_state_view.dart';
 import '../../../capture_history/presentation/screens/capture_history_screen.dart';
 
@@ -23,12 +24,24 @@ class CameraScreen extends StatefulWidget {
   State<CameraScreen> createState() => _CameraScreenState();
 }
 
-class _CameraScreenState extends State<CameraScreen> {
+class _CameraScreenState extends State<CameraScreen> with RouteAware {
   @override
   void initState() {
     super.initState();
     _initCamera();
     context.read<CapturedCardsViewModel>().addListener(_maybeShowPreview);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Route (not just widget) changes matter here: `ModalRoute.of(context)`
+    // is only valid once dependencies are available, so this can't happen
+    // in `initState`.
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<void>) {
+      routeObserver.subscribe(this, route);
+    }
   }
 
   Future<void> _initCamera() async {
@@ -56,8 +69,42 @@ class _CameraScreenState extends State<CameraScreen> {
     // `CameraService.dispose()` stops the stream and awaits that before
     // disposing the controller itself, so there's a single place that
     // ordering is enforced instead of two independent call sites racing.
+    routeObserver.unsubscribe(this);
     context.read<CapturedCardsViewModel>().removeListener(_maybeShowPreview);
     super.dispose();
+  }
+
+  @override
+  void didPushNext() {
+    // Another screen (result preview, edit/recrop, capture history) was
+    // just pushed on top of this one - pause the image stream so the
+    // full OpenCV detection pipeline stops running on frames nobody can
+    // even see. Previously this kept running the whole time regardless,
+    // burning battery/CPU for no user-visible benefit.
+    _pauseImageStream();
+  }
+
+  @override
+  void didPopNext() {
+    // Back on top again (whatever was pushed above this screen has been
+    // popped) - resume analyzing frames.
+    _resumeImageStream();
+  }
+
+  void _pauseImageStream() {
+    final controller = context.read<CameraViewModel>().cameraController;
+    if (controller != null && controller.value.isStreamingImages) {
+      controller.stopImageStream();
+    }
+  }
+
+  void _resumeImageStream() {
+    if (!mounted) return;
+    final controller = context.read<CameraViewModel>().cameraController;
+    if (controller != null && !controller.value.isStreamingImages) {
+      final detectionViewModel = context.read<DetectionViewModel>();
+      controller.startImageStream(detectionViewModel.onFrame);
+    }
   }
 
   void _maybeShowPreview() {

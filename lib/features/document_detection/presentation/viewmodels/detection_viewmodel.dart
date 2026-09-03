@@ -220,8 +220,22 @@ class DetectionViewModel extends ChangeNotifier {
         final captureResult = await worker.capture(
           IsolateCaptureRequest(frame: frame, rotationDegrees: rotationDegrees),
         );
-        if (captureResult.pngBytes != null && sentUnderGeneration == _sideGeneration) {
-          onCardCaptured?.call(captureResult.pngBytes!, _currentSide);
+        if (captureResult.pngBytes != null) {
+          if (sentUnderGeneration == _sideGeneration) {
+            onCardCaptured?.call(captureResult.pngBytes!, _currentSide);
+          }
+        } else if (sentUnderGeneration == _sideGeneration) {
+          // `pngBytes == null` means the tracked quad drifted/was lost
+          // between this frame's analysis and the `capture` round-trip
+          // that just ran (see `IsolateCaptureResult`'s doc comment) -
+          // rare, but `autocaptureViewModel` was already latched into
+          // `CaptureState.captured` above (that's what made `justCaptured`
+          // true), so without this the UI is left permanently showing a
+          // successful capture that never actually produced an image, with
+          // no way back to `searching` short of leaving the screen. Reset
+          // it so the state machine re-arms and the user can just try
+          // again.
+          autocaptureViewModel?.reset();
         }
       }
 
@@ -236,6 +250,14 @@ class DetectionViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _worker?.dispose();
+    // `repository` (the main-isolate copy used for `EditCaptureScreen`'s
+    // manual recrop) owns its own native resources - a barcode detector
+    // and, historically, a face cascade classifier that was never freed
+    // because nothing ever called this. `DocumentDetectionDataSource` no
+    // longer loads that cascade eagerly on this main-isolate instance
+    // (see `app.dart`'s `loadFaceCascadeEagerly: false`), but the barcode
+    // detector still needs disposing regardless.
+    repository.dispose();
     super.dispose();
   }
 }
