@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 
+import '../../../../../shared/utils/histogram_utils.dart';
 import '../../../domain/entities/detected_document.dart';
 import 'card_quad_geometry.dart';
 
@@ -45,6 +46,17 @@ class DocumentContourDetector {
   static final _kernel5 = cv.getStructuringElement(cv.MORPH_RECT, (5, 5));
   static final _kernel9 = cv.getStructuringElement(cv.MORPH_RECT, (9, 9));
   static final _kernel15 = cv.getStructuringElement(cv.MORPH_RECT, (15, 15));
+
+  // CLAHE holds a native (FFI) object and must not be recreated on every
+  // call: `_preprocessGray`/`_preprocessGrayFast` run on essentially every
+  // analyzed frame, and a fresh `cv.createCLAHE(...)` per call leaked
+  // native memory every frame (relying on `CLAHE`'s `NativeFinalizer` to
+  // eventually catch up, which it can't at camera frame rate since the
+  // tiny Dart wrapper gives the GC no signal there's expensive native
+  // memory behind it). One instance per clip limit used, same fix as
+  // `TemplateMatcher._clahe` and `BlurDetector._clahe`.
+  static final _claheDefault = cv.createCLAHE(clipLimit: 2.5, tileGridSize: (8, 8));
+  static final _claheFast = cv.createCLAHE(clipLimit: 3.5, tileGridSize: (8, 8));
 
   // If a candidate scores at least this well, later (more expensive)
   // candidate-generation passes are skipped for that frame.
@@ -269,8 +281,7 @@ class DocumentContourDetector {
     final filtered = cv.bilateralFilter(gray, 9, 75, 75);
     gray.dispose();
 
-    final clahe = cv.createCLAHE(clipLimit: 2.5, tileGridSize: (8, 8));
-    final result = clahe.apply(filtered);
+    final result = _claheDefault.apply(filtered);
     filtered.dispose();
 
     return result;
@@ -297,8 +308,7 @@ class DocumentContourDetector {
     // aggressive local contrast boost) is needed to push that gradient
     // up into a range Canny's fixed lower/upper bounds (see
     // `_findCandidates`) can actually pick up.
-    final clahe = cv.createCLAHE(clipLimit: 3.5, tileGridSize: (8, 8));
-    final result = clahe.apply(blurred);
+    final result = _claheFast.apply(blurred);
     blurred.dispose();
 
     return result;
@@ -313,7 +323,7 @@ class DocumentContourDetector {
       cv.Mat gray, cv.Mat bgr, double imageArea) {
     final blurred = cv.gaussianBlur(gray, (5, 5), 0);
 
-    final median = _median(gray);
+    final median = histogramMedian(gray);
     var lower = math.max(0, (_cannyLowerMedianFactor * median)).toDouble();
     var upper = math.min(255, (_cannyUpperMedianFactor * median)).toDouble();
 
@@ -494,40 +504,14 @@ class DocumentContourDetector {
     }
   }
 
-  double _median(cv.Mat gray) {
-    // NOTE: this used to call `cv.meanStdDev(gray)` and return the MEAN,
-    // mislabeled as median - that's a real bug, not just a naming slip.
-    // On a bright/white scene (light card on a light background), the
-    // mean is high (e.g. ~220/255), so `0.66x/1.33x` of it pushed the
-    // Canny thresholds up into a range so high that only very strong
-    // gradients survived - exactly the opposite of what a low-contrast
-    // light-on-light scene needs (weak gradients everywhere, by
-    // definition). That's why light-surface detection regressed instead
-    // of improving: the "adaptive" threshold was adapting the wrong way
-    // on bright scenes. A true median (via histogram) is far less
-    // sensitive to being dragged up by a mostly-bright frame than the
-    // mean is, and is also the statistic the "0.66x/1.33x" heuristic is
-    // actually defined against (see the common OpenCV auto-Canny recipe
-    // this was following).
-    final hist = cv.calcHist(
-      cv.VecMat.fromList([gray]),
-      cv.VecI32.fromList([0]),
-      cv.Mat.empty(),
-      cv.VecI32.fromList([256]),
-      cv.VecF32.fromList([0,256]),
-    );
-    final totalPixels = gray.rows * gray.cols;
-    final halfPixels = totalPixels / 2;
-
-    var cumulative = 0.0;
-    for (var bin = 0; bin < 256; bin++) {
-      cumulative += hist.at<double>(bin, 0);
-      if (cumulative >= halfPixels) {
-        hist.dispose();
-        return bin.toDouble();
-      }
-    }
-    hist.dispose();
-    return 128.0;
-  }
+  // NOTE: the median-of-gray computation used to live here as a
+  // hand-rolled histogram walk (and, before that, as a mislabeled call to
+  // `cv.meanStdDev(gray)` that actually returned the MEAN - a real bug on
+  // bright/white scenes: the mean sits much higher than the median on a
+  // light card over a light background, pushing the `0.66x/1.33x` Canny
+  // thresholds up into a range only very strong gradients survive, the
+  // opposite of what a low-contrast light-on-light scene needs). It's now
+  // `histogramMedian` in `shared/utils/histogram_utils.dart`, shared with
+  // `SeparationLineDetector`'s identical `_median`/`_percentile` - see
+  // that file for the fuller history of why a true median matters here.
 }
