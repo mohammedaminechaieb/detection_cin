@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:provider/provider.dart';
+import 'core/navigation/route_observer.dart';
 import 'core/services/camera_service.dart';
 import 'core/services/cascade_asset_loader.dart';
 import 'features/camera_capture/presentation/viewmodels/camera_viewmodel.dart';
@@ -44,6 +45,23 @@ class _MyAppState extends State<MyApp> {
     _bootstrap();
   }
 
+  @override
+  void dispose() {
+    // `ChangeNotifierProvider.value` deliberately does NOT dispose
+    // externally-owned notifiers (that's the whole point of `.value` vs
+    // `.create`), so this is the only place these ever get cleaned up.
+    // In practice `MyApp` lives for the whole app process and this rarely
+    // runs, but it matters for hot-restart and is simply correct - without
+    // it, `DetectionViewModel.dispose()` (which tears down the isolate
+    // worker and the main-isolate repository/cascade classifier) never
+    // ran at all.
+    _detectionViewModel?.dispose();
+    _autocaptureViewModel?.dispose();
+    _capturedCardsViewModel?.dispose();
+    _postprocessingViewModel?.dispose();
+    super.dispose();
+  }
+
   Future<void> _bootstrap() async {
     try {
       final cascadePath = await loadCascadeAssetPath();
@@ -58,7 +76,17 @@ class _MyAppState extends State<MyApp> {
       // instance is only used for the occasional, user-triggered recrop
       // (see `RecropScreen`/`ResultPreviewScreen`), which is infrequent and
       // cheap enough that running it here doesn't reintroduce the lag.
-      final detectionDatasource = DocumentDetectionDataSource(cascadePath);
+      //
+      // `loadFaceCascadeEagerly: false`: recrop only ever calls
+      // decodePng/applyRotation/warpDocument/encodeToPng - never face
+      // detection - so there's no reason for this main-isolate instance to
+      // eagerly load a whole Haar cascade classifier into memory at
+      // startup purely to let it sit unused for the rest of the app's
+      // life. The isolate worker's own copy (constructed separately,
+      // inside `DetectionIsolateWorker._workerMain`) still loads eagerly,
+      // since it's the one that actually needs the fail-fast startup
+      // validation.
+      final detectionDatasource = DocumentDetectionDataSource(cascadePath, loadFaceCascadeEagerly: false);
       final detectionRepository = DetectionRepositoryImpl(detectionDatasource);
 
       final autocaptureViewModel = AutocaptureViewModel(
@@ -194,6 +222,7 @@ class _MyAppState extends State<MyApp> {
       child: MaterialApp(
         title: 'CIN Autocapture',
         debugShowCheckedModeBanner: false,
+        navigatorObservers: [routeObserver],
         theme: ThemeData(
           useMaterial3: true,
           colorSchemeSeed: Colors.blue,

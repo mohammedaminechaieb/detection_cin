@@ -1,0 +1,11 @@
+# The repo previously had a mix of CRLF and LF line endings across
+# lib/, test/, and pubspec.yaml with no policy enforcing either - every
+# file has now been normalized to LF, and this file keeps it that way so
+# a future commit from a different platform/editor doesn't reintroduce
+# the mix and its accompanying noisy whole-file diffs.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.xml binary

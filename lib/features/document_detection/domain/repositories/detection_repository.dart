@@ -31,4 +31,11 @@ abstract class DetectionRepository {
   /// Décode des octets PNG (ex. une carte déjà capturée) en [cv.Mat].
   /// L'appelant est responsable de disposer le Mat retourné.
   cv.Mat decodePng(Uint8List pngBytes);
+
+  /// Releases every native resource this repository owns (face cascade
+  /// classifier, barcode detector, ...). Must be called exactly once,
+  /// when this repository is no longer needed - the caller (typically
+  /// whatever owns the repository's lifetime, e.g. `DetectionViewModel`)
+  /// is responsible for calling it.
+  void dispose();
 }

@@ -22,10 +22,18 @@ import 'detectors/template_matcher.dart';
 /// only wires them together and forwards calls, so it stays a thin
 /// composition root rather than a god class.
 class DocumentDetectionDataSource {
-  DocumentDetectionDataSource(String cascadePath)
+  /// [loadFaceCascadeEagerly]: forwarded to [FaceOrientationDetector].
+  /// Leave `true` (the default) for the detection-isolate worker's
+  /// instance, so a bad cascade path fails the worker's startup handshake
+  /// immediately. Pass `false` for an instance that's only ever used for
+  /// operations that don't touch face detection - e.g. the main-isolate
+  /// repository behind `EditCaptureScreen`'s manual recrop flow, which
+  /// otherwise loaded a whole Haar cascade classifier into memory at app
+  /// startup purely to never use it.
+  DocumentDetectionDataSource(String cascadePath, {bool loadFaceCascadeEagerly = true})
       : _contourDetector = DocumentContourDetector(),
         _warper = PerspectiveWarper(),
-        _faceDetector = FaceOrientationDetector(cascadePath),
+        _faceDetector = FaceOrientationDetector(cascadePath, eager: loadFaceCascadeEagerly),
         _templateMatcher = const TemplateMatcher(),
         _barcodeDetector = BarcodeAreaDetector(),
         _fingerprintDetector = const FingerprintPresenceDetector(),

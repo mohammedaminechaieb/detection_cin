@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:opencv_dart/opencv_dart.dart' as cv;
 
+import '../../../../../shared/utils/histogram_utils.dart';
+
 /// Detects the horizontal separation line printed across the bottom of
 /// the card's back, combining a saturation-gradient edge map with a
 /// standard Canny edge map before running a probabilistic Hough transform.
@@ -102,7 +104,7 @@ class SeparationLineDetector {
     // thresholds land. Real median via histogram, matching the same fix
     // in DocumentContourDetector._median (see that file for the fuller
     // explanation of why this matters on bright scenes specifically).
-    final median = _median(gray);
+    final median = histogramMedian(gray);
     var cannyLower = math.max(0, _cannyLowerMedianFactor * median).toDouble();
     var cannyUpper = math.min(255, _cannyUpperMedianFactor * median).toDouble();
     cannyLower = math.min(cannyLower, 90.0);
@@ -153,7 +155,7 @@ class SeparationLineDetector {
     // genuinely flat/textureless region (no line and little noise, low
     // percentile response) doesn't threshold at ~0 and mark everything
     // as a line.
-    final percentileThreshold = math.max(12.0, _percentile(lineFeature, _lineFeaturePercentile));
+    final percentileThreshold = math.max(12.0, histogramPercentile(lineFeature, _lineFeaturePercentile));
     final (_, lineMask) = cv.threshold(lineFeature, percentileThreshold, 255, cv.THRESH_BINARY);
     lineFeature.dispose();
 
@@ -211,52 +213,8 @@ class SeparationLineDetector {
     return (found, bestLine, lengthRatio);
   }
 
-  /// Value below which [percentile] fraction of [img]'s pixels fall,
-  /// via the same histogram-cumulative-sum approach as [_median] (which
-  /// is just this at `percentile = 0.5`).
-  double _percentile(cv.Mat img, double percentile) {
-    final hist = cv.calcHist(
-      cv.VecMat.fromList([img]),
-      cv.VecI32.fromList([0]),
-      cv.Mat.empty(),
-      cv.VecI32.fromList([256]),
-      cv.VecF32.fromList([0, 256]),
-    );
-    final totalPixels = img.rows * img.cols;
-    final targetCount = totalPixels * percentile;
-
-    var cumulative = 0.0;
-    for (var bin = 0; bin < 256; bin++) {
-      cumulative += hist.at<double>(bin, 0);
-      if (cumulative >= targetCount) {
-        hist.dispose();
-        return bin.toDouble();
-      }
-    }
-    hist.dispose();
-    return 255.0;
-  }
-
-  double _median(cv.Mat gray) {
-    final hist = cv.calcHist(
-      cv.VecMat.fromList([gray]),
-      cv.VecI32.fromList([0]),
-      cv.Mat.empty(),
-      cv.VecI32.fromList([256]),
-      cv.VecF32.fromList([0,256]),
-    );
-    final totalPixels = gray.rows * gray.cols;
-    final halfPixels = totalPixels / 2;
-
-    var cumulative = 0.0;
-    for (var bin = 0; bin < 256; bin++) {
-      cumulative += hist.at<double>(bin, 0);
-      if (cumulative >= halfPixels) {
-        hist.dispose();
-        return bin.toDouble();
-      }
-    }
-    hist.dispose();
-    return 128.0;
-  }
+  // The median/percentile histogram helpers that used to live here as
+  // `_median`/`_percentile` (near-duplicates of `DocumentContourDetector`'s
+  // own copies) are now `histogramMedian`/`histogramPercentile` in
+  // `shared/utils/histogram_utils.dart`.
 }

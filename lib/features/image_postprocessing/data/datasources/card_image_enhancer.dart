@@ -8,15 +8,13 @@ import 'package:image/image.dart' as img;
 /// Volontairement discret - l'objectif est la lisibilité du document
 /// (texte, photo, code-barres), pas un rendu "artistique".
 ///
-/// ASSOMPTION NON VÉRIFIÉE : API `package:image` v4.x (paramètres nommés -
+/// Verified against `package:image` v4.9.2 source (pubspec.yaml pins
+/// `image: ^4.3.0`, and this API has been stable across that range):
 /// `img.adjustColor(image, contrast: ..., brightness: ...)`,
 /// `img.gaussianBlur(image, radius: ...)`,
-/// `img.convolution(image, filter: [...], div: ..., offset: ...)`,
-/// `img.grayscale(image)`). Si le projet est sur `package:image` v3.x, ces
-/// appels utilisent des arguments positionnels et `convolution` peut ne
-/// pas exister sous ce nom - à ajuster si `flutter analyze` le signale.
-/// Nécessite `image: ^4.x` dans pubspec.yaml. Pas de `pubspec.yaml` dans
-/// ce qui m'a été fourni pour confirmer la version installée.
+/// `img.convolution(image, filter: [...], div: ..., offset: ...)`, and
+/// `img.grayscale(image)` all match their real named-parameter
+/// signatures.
 class CardImageEnhancer {
   const CardImageEnhancer({
     this.contrast = 1.15,
