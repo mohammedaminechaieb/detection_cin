@@ -122,3 +122,17 @@ Les durées et les temps cumulés figurent en tête de chaque note. Il s'agit d'
 - **Diapos 14, 15 et secours C** : re-rendues après mise à jour.
 - **Contrôle automatique** : 20 diapositives, aucune forme hors cadre, notes partout.
 - **Timing** : 14 min 30 prévues.
+
+## 9. Révision 5 — animations
+
+- **Transition** : fondu discret sur les 20 diapositives.
+- **Apparitions en fondu au clic (0,4 s)** sur 5 diapositives, 10 clics au total :
+  - parcours Avatar-ID (2) ;
+  - pipeline (1) ;
+  - difficulté fond clair (3) ;
+  - autocapture (1) ;
+  - mesures (3).
+- **Consignes de clic** ajoutées en tête des notes de ces diapositives.
+- **Vérifications** : identifiants de cibles existants, identifiants de minutage uniques, ordre XML conforme (cSld, clrMapOvr, transition, timing). L'import LibreOffice (conversion en ODP) retrouve les 10 étapes au clic.
+- **Non vérifié** : la lecture dans PowerPoint. Faire défiler une fois le diaporama avant la soutenance.
+- **Export PDF** : il montre l'état final de chaque diapositive (sans animation).
