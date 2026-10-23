@@ -168,3 +168,14 @@ Les durées et les temps cumulés figurent en tête de chaque note. Il s'agit d'
 - **Créneaux** : 8 min 00 au total, clics et respirations compris, ce qui laisse environ 2 min de marge sous les 10 min (ou une démonstration en direct en diapo 11).
 - **Repères de clic** : un marqueur « [clic] » dans le texte oral indique le moment exact de chaque clic.
 - **Préparation aux questions** : les questions probables et leurs réponses sont conservées ; elles ne sont pas lues.
+
+## 13. Révision 9 — démonstration, discours de 9 min, documents d'accompagnement
+
+- **Nouvelle diapo 11 « Démonstration »** : un cadre téléphone, avec intégration automatique de `build/assets/demo.mp4` s'il est présent ; sinon, un aperçu et la mention « Vidéo à insérer ». Le support compte 17 diapositives principales + 4 secours.
+- **Discours** : environ 1 080 mots, avec les mentions techniques rétablies (seuils, Laplacien, Haar, Hough, isolate…). Prévu en 9 min 10, démonstration de 40 s comprise.
+- **Documents ajoutés** (`docs/`, chacun en .md, .docx et .pdf) :
+  - Script_Oral : script complet, généré à partir des notes ;
+  - Guide_Technique : toutes les notions, avec prononciations, fonctionnement et valeurs ;
+  - QA_Entrainement : 58 questions-réponses ;
+  - Guide_Video_Demo : tournage, floutage, intégration.
+- **Vérification** : valeurs du guide technique recoupées avec le code (détecteurs) et le rapport (tableau 5.1).
