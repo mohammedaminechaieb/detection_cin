@@ -103,3 +103,19 @@ Statuts : **Fait** (implémenté) · **Adapté** · **Impossible ici** (dépend 
 Total prévu : 13 min 55 à environ 140 mots/min, soit environ 1 min de marge sur 15 min.
 
 **Test du deck fantôme.** Lus à la suite, les titres 2 à 14 racontent l'argument complet : problème → exigences → choix → architecture → pipeline → difficulté → autocapture → recto/verso → parcours → tests → mesures → limites → bilan.
+
+## 6. Révision 2 — demandes de l'auteur (prioritaires sur §3 à §5)
+
+- **iOS** : l'auteur confirme avoir testé l'application sur iOS, avec un comportement identique à Android. Le rapport ne le documente pas ; l'information vient de l'auteur. iOS sort des limites et apparaît comme résultat (diapos 3, 4, 12, 14).
+- **Mentions restrictives retirées des diapositives** : 21/28 fichiers, fichiers non exécutés, couverture non mesurée, gain non chiffré, échantillon non consigné. Les réponses factuelles restent dans les notes (« QUESTIONS PROBABLES ») pour préparer les questions du jury.
+- **Lignes de source et notes grises de bas de page supprimées.** Restent les légendes fonctionnelles : légende des couleurs, légendes des captures.
+- **Diapo 13** : « limites » devient « quatre pistes vers la production » (jeu d'images, tests réels automatisés, timeout, vivacité et anti-rejeu).
+- **Diapo 15 ajoutée** : « Merci pour votre attention ».
+- **Contenus des secours intégrés aux diapos principales** :
+  - pénalité ×0,85 et resserrement de 1,5 % (diapo 6) ;
+  - paramètres Haar (diapo 9) ;
+  - traitement sur l'appareil (diapo 10) ;
+  - paliers de test détaillés (diapo 11) ;
+  - apport personnel (diapo 14).
+- **Secours** : B devient « méthodes de test par composant » (rapport, tableau 9.3) ; C est reformulé en « garanti / prochaines étapes ».
+- **Structure finale** : 15 diapositives principales + 4 de secours, 14 min environ.
