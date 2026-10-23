@@ -1,5 +1,7 @@
 # Rapport de validation — `Soutenance_Stage_ENSI_Final.pptx`
 
+Fichier final : **`Soutenance_Stage_ENSI_Final.pptx` à la racine du dépôt**. Export PDF de secours : `deliverables/final-defense/Soutenance_Stage_ENSI_Final.pdf`.
+
 Environnement de contrôle : python-pptx 1.0.2, LibreOffice 24.2.7.2 (rendu PPTX → PDF → PNG), Poppler.
 Le fichier n'a **pas** été ouvert dans Microsoft PowerPoint (indisponible ici).
 
