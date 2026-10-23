@@ -2,7 +2,7 @@
 
 ## 1. Où la placer dans la soutenance
 
-- **Sur sa propre diapositive**, la **diapo 11 « Démonstration »**, déjà prévue dans le support : juste après l'explication du recto/verso (diapo 10) et avant le parcours après capture (diapo 12).
+- **Sur sa propre diapositive**, la **diapo 12 « Démonstration »**, déjà prévue dans le support : après le recto/verso (diapo 10) et le post-traitement (diapo 11). La vidéo montre alors tout le parcours en une fois, comme une synthèse, avant les tests et les résultats.
 - **Commenter pendant la vidéo**, ni avant ni après : le texte prévu dans les notes (environ 40 s) suit les étapes à l'écran.
 - Durée visée : **30 à 45 s**. Plus long, c'est autant de temps pris aux résultats.
 
@@ -59,14 +59,14 @@ ffmpeg -i demo_brute.mp4 -filter_complex "[0:v]crop=w=300:h=380:x=120:y=900,boxb
 2. La nommer `demo.mp4` et la placer dans `deliverables/final-defense/build/assets/`.
 3. Relancer `python3 deliverables/final-defense/build/build_deck.py`.
 
-La vidéo remplace automatiquement le cadre de la diapo 11.
+La vidéo remplace automatiquement le cadre de la diapo 12.
 
 **Option 2 (dans PowerPoint)**
-1. Diapo 11 → supprimer l'image du cadre.
+1. Diapo 12 → supprimer l'image du cadre.
 2. **Insertion → Vidéo → Cet appareil**, puis redimensionner dans le cadre.
 3. Onglet **Lecture** → *Démarrer* : **Automatiquement** (ou *Au clic*).
 
 **Le jour J**
 - Garder aussi une **copie de la vidéo sur clé USB**.
 - Tester la lecture sur le PC de la salle.
-- Si la vidéo ne se lance pas, montrer les captures de la diapo 12 et dire : « Je vous montre le parcours sur ces captures. »
+- Si la vidéo ne se lance pas, revenir aux captures de la diapo 11 et dire : « Je vous montre le parcours sur ces captures. »

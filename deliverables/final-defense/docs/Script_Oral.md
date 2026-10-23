@@ -14,8 +14,8 @@ Durée visée : **environ 9 min**, démonstration de 40 s comprise. Rythme : env
 | 8 | Sur fond clair, la détection échouait ; médiane, CLAHE et réglage des seuils l'ont corrigée | 0:40 | 4:40 |
 | 9 | La capture part seule après deux frames consécutives nettes, bien exposées et stables | 0:45 | 5:25 |
 | 10 | Un visage et deux gabarits identifient le recto ; trois indices votent pour le verso | 0:40 | 6:05 |
-| 11 | Démonstration : la carte est détectée, contrôlée et capturée sans bouton | 0:45 | 6:50 |
-| 12 | Après les deux captures, l'utilisateur vérifie, ajuste et exporte chaque face | 0:25 | 7:15 |
+| 11 | Après les deux captures, l'utilisateur vérifie, ajuste et exporte chaque face | 0:25 | 6:30 |
+| 12 | Démonstration : de la carte posée devant la caméra à la page A4 | 0:45 | 7:15 |
 | 13 | 177 cas de test automatisés passent sans échec, organisés en quatre paliers | 0:25 | 7:40 |
 | 14 | Les trois cibles du cahier des charges sont atteintes sur appareil réel | 0:30 | 8:10 |
 | 15 | Quatre pistes pour amener le module vers la production | 0:20 | 8:30 |
@@ -90,21 +90,21 @@ L'autocapture est une machine à états : searching tant qu'aucune carte n'est t
 
 **[clic]** Au recto, la photo est toujours en haut à gauche : j'y cherche un visage avec la cascade de Haar d'OpenCV, pré-entraînée, sur quatre rotations, ce qui donne aussi l'orientation. Le logo et le drapeau sont confirmés par template matching, avec une corrélation d'au moins 0,6. **[clic]** Le verso n'a pas de visage : le code-barres, la texture de l'empreinte et la ligne de séparation, trouvée par une transformée de Hough, votent sur quatre rotations. **[clic]** Ainsi, présenter deux fois le recto ne déclenche rien.
 
-*Transition :* « Voyons-le en vrai. »
+*Transition :* « Après la capture, l'utilisateur garde la main. »
 
-## 11. Démonstration : la carte est détectée, contrôlée et capturée sans bouton
-*0:45 — cumul 6:50*
+## 11. Après les deux captures, l'utilisateur vérifie, ajuste et exporte chaque face
+*0:25 — cumul 6:30* · clics : 3 clics : une capture d'écran par clic (vérification, recadrage, page A4).
+
+Une fois les deux faces capturées, l'utilisateur **[clic]** vérifie et règle contraste et netteté, **[clic]** ajuste le recadrage si besoin, **[clic]** puis exporte le recto, le verso et une page A4 à 300 dpi. Tout est traité sur l'appareil.
+
+*Transition :* « Voyons tout le parcours en vidéo. »
+
+## 12. Démonstration : de la carte posée devant la caméra à la page A4
+*0:45 — cumul 7:15*
 
 > **Vidéo :** 40 s environ. Lancer la vidéo dès l'arrivée sur la diapositive (clic sur la vidéo). Pour l'intégrer : déposer le fichier dans build/assets/demo.mp4 puis relancer le script, ou dans PowerPoint : Insertion → Vidéo → Cet appareil, à la place du cadre, puis Lecture → Démarrer « Automatiquement ».
 
-Voici le module en action. **[lancer la vidéo]** Le cadre est rouge tant que la carte n'est pas détectée, puis passe au vert. L'application guide l'utilisateur avec ses messages, et capture le recto toute seule dès que la netteté, la luminosité et la stabilité sont bonnes. Elle passe ensuite au verso, le reconnaît à ses trois indices, et le capture à son tour, sans aucun bouton.
-
-*Transition :* « Après la capture, l'utilisateur garde la main. »
-
-## 12. Après les deux captures, l'utilisateur vérifie, ajuste et exporte chaque face
-*0:25 — cumul 7:15* · clics : 3 clics : une capture d'écran par clic (vérification, recadrage, page A4).
-
-Une fois les deux faces capturées, l'utilisateur **[clic]** vérifie et règle contraste et netteté, **[clic]** ajuste le recadrage si besoin, **[clic]** puis exporte le recto, le verso et une page A4 à 300 dpi. Tout est traité sur l'appareil.
+Voici le module en action. **[lancer la vidéo]** Le cadre est rouge tant que la carte n'est pas détectée, puis passe au vert ; les messages guident l'utilisateur. Le recto est capturé tout seul dès que la netteté, la luminosité et la stabilité sont bonnes, puis l'application passe au verso et le capture à son tour. On arrive ensuite sur la vérification, l'ajustement et l'export de la page A4.
 
 *Transition :* « Comment l'ai-je validé ? »
 
