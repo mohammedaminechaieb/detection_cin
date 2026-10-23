@@ -149,3 +149,14 @@ Les durées et les temps cumulés figurent en tête de chaque note. Il s'agit d'
   - Rendu des états intermédiaires des diapos 2, 3, 4, 5, 6, 7, 9, 11, 13 et 15 pour vérifier l'ordre d'apparition.
   - L'import LibreOffice reconnaît les séquences.
 - **Non vérifié** : la lecture dans PowerPoint.
+
+## 11. Révision 7 — apparitions au clic, choisies par l'orateur
+
+- **Construction automatique supprimée** (`AUTO_BUILD = False` dans le script).
+- **Apparitions au clic (fondu, 0,4 s)** sur les 14 diapositives de contenu, 38 clics au total. Le titre et les éléments de repère sont visibles dès l'arrivée sur la diapositive.
+- **Sans clic** : la diapo de titre, la diapo « Merci » et les 4 secours, pour un affichage immédiat pendant les questions.
+- **Notes** : chaque diapositive animée commence par une ligne « ANIMATIONS — N clics : … » qui décrit l'ordre.
+- **Contrôles** :
+  - XML valide ;
+  - états avant/après chaque clic rendus pour les diapos 3, 10 et 15 ;
+  - LibreOffice reconnaît les 38 étapes au clic.
