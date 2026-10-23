@@ -130,3 +130,9 @@ Total prévu : 13 min 55 à environ 140 mots/min, soit environ 1 min de marge su
 - **Nouvelle diapo 3** : le parcours en cinq étapes, avec le périmètre du stage (étape 1) distingué de la suite d'Avatar-ID. Elle explique ce que le module transmet et pourquoi la qualité de capture conditionne la comparaison et l'OCR.
 - **Vivacité retirée des perspectives**, puisqu'elle est assurée en aval. La piste anti-fraude devient une analyse de texture de la carte contre l'affichage sur écran (rapport §7.2.4). Le secours C et les notes sont mis à jour.
 - **Structure** : 16 diapositives principales + 4 de secours, environ 14 min 30.
+
+## 8. Révision 4
+
+- **Le parcours Avatar-ID passe en diapo 2**, pour un enchaînement contexte → problème. La définition d'Avatar-ID et le KYC sont déplacés dans le texte oral de la diapo 2 ; la diapo 3 relie le problème aux étapes suivantes (photos, OCR).
+- **Logos Flutter, Dart et OpenCV** ajoutés sous le tableau du choix technologique (diapo 5). Source : Simple Icons, colorés aux couleurs des marques ; OpenCV en rouge, vert et bleu.
+- **Schéma « fond sombre / fond clair »** sur la diapo de la difficulté (diapo 8) : la seule illustration ajoutée, parce que cette diapo n'était que du texte.
