@@ -136,3 +136,16 @@ Les durées et les temps cumulés figurent en tête de chaque note. Il s'agit d'
 - **Vérifications** : identifiants de cibles existants, identifiants de minutage uniques, ordre XML conforme (cSld, clrMapOvr, transition, timing). L'import LibreOffice (conversion en ODP) retrouve les 10 étapes au clic.
 - **Non vérifié** : la lecture dans PowerPoint. Faire défiler une fois le diaporama avant la soutenance.
 - **Export PDF** : il montre l'état final de chaque diapositive (sans animation).
+
+## 10. Révision 6 — construction progressive sur toutes les diapositives
+
+- **Apparition automatique** à l'ouverture de chaque diapositive (pas de clic) : le titre d'abord, puis le contenu par bandes, de haut en bas.
+  - Chaque bande dure 0,35 s ; une nouvelle bande démarre toutes les 0,25 s.
+  - Au plus 7 étapes par diapositive, soit environ 1,5 s.
+  - Un cadre et son contenu apparaissent ensemble ; la machine à états (diapo 9) apparaît d'un bloc.
+- **Clics** : les 10 étapes au clic des diapos 2, 7, 8, 9 et 13 sont conservées après la construction automatique.
+- **Contrôles** :
+  - XML valide sur les 20 diapositives : cibles existantes, identifiants uniques.
+  - Rendu des états intermédiaires des diapos 2, 3, 4, 5, 6, 7, 9, 11, 13 et 15 pour vérifier l'ordre d'apparition.
+  - L'import LibreOffice reconnaît les séquences.
+- **Non vérifié** : la lecture dans PowerPoint.
