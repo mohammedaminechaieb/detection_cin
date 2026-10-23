@@ -160,3 +160,11 @@ Les durées et les temps cumulés figurent en tête de chaque note. Il s'agit d'
   - XML valide ;
   - états avant/après chaque clic rendus pour les diapos 3, 10 et 15 ;
   - LibreOffice reconnaît les 38 étapes au clic.
+
+## 12. Révision 8 — discours compacté pour 10 minutes maximum
+
+- **Diapositives inchangées** : seuls les textes oraux et les transitions des notes ont été réécrits.
+- **Volume** : environ 770 mots (contre environ 2 000), soit environ 6 min de parole à 130 mots/min.
+- **Créneaux** : 8 min 00 au total, clics et respirations compris, ce qui laisse environ 2 min de marge sous les 10 min (ou une démonstration en direct en diapo 11).
+- **Repères de clic** : un marqueur « [clic] » dans le texte oral indique le moment exact de chaque clic.
+- **Préparation aux questions** : les questions probables et leurs réponses sont conservées ; elles ne sont pas lues.
