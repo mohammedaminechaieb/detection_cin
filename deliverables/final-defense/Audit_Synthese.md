@@ -119,3 +119,14 @@ Total prévu : 13 min 55 à environ 140 mots/min, soit environ 1 min de marge su
   - apport personnel (diapo 14).
 - **Secours** : B devient « méthodes de test par composant » (rapport, tableau 9.3) ; C est reformulé en « garanti / prochaines étapes ».
 - **Structure finale** : 15 diapositives principales + 4 de secours, 14 min environ.
+
+## 7. Révision 3 — place du module dans Avatar-ID
+
+- **Information de l'auteur, non détaillée dans le rapport.** Après le module, Avatar-ID enchaîne :
+  1. un test de vivacité ;
+  2. la comparaison de la photo de la CIN avec le visage ;
+  3. l'OCR des champs de la carte ;
+  4. l'enregistrement du résultat.
+- **Nouvelle diapo 3** : le parcours en cinq étapes, avec le périmètre du stage (étape 1) distingué de la suite d'Avatar-ID. Elle explique ce que le module transmet et pourquoi la qualité de capture conditionne la comparaison et l'OCR.
+- **Vivacité retirée des perspectives**, puisqu'elle est assurée en aval. La piste anti-fraude devient une analyse de texture de la carte contre l'affichage sur écran (rapport §7.2.4). Le secours C et les notes sont mis à jour.
+- **Structure** : 16 diapositives principales + 4 de secours, environ 14 min 30.

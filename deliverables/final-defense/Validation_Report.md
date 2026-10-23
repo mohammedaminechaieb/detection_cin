@@ -11,7 +11,7 @@ Le fichier n'a **pas** été ouvert dans Microsoft PowerPoint (indisponible ici)
 |---|---|
 | Archive ZIP / OOXML valide | OK (`testzip` sans erreur ; relu par python-pptx et LibreOffice) |
 | Format | 16:9, 13,333 × 7,5 in, identique sur les 18 diapositives |
-| Nombre de diapositives | 15 principales (dont « Merci ») + 4 de secours (A–D) |
+| Nombre de diapositives | 16 principales (dont « Merci ») + 4 de secours (A–D) |
 | Éléments éditables | Texte, tableaux, schémas et barres : formes natives, aucun schéma aplati en image |
 | Images | 11 images, toutes embarquées (aucun lien externe), toutes avec texte alternatif |
 | Débordement | Aucune forme hors de la diapositive (contrôle automatique des coordonnées) |
@@ -115,3 +115,10 @@ Les durées et les temps cumulés figurent en tête de chaque note. Il s'agit d'
 - Contrôle automatique : aucune forme hors cadre, texte alternatif sur toutes les images, notes sur toutes les diapositives. Aucune occurrence de « 21/28 », « non exécuté », « non mesuré », « non chiffré », « non consigné », « Source » sur les diapositives.
 - Timing : 14 min 00 prévues (cumuls dans les notes).
 - La validation iOS est une information de l'auteur, non documentée dans le rapport (voir Audit_Synthese §6).
+
+## 8. Révision 3
+
+- **Nouvelle diapo 3 (parcours Avatar-ID)** : rendue et inspectée, coupure de mot corrigée.
+- **Diapos 14, 15 et secours C** : re-rendues après mise à jour.
+- **Contrôle automatique** : 20 diapositives, aucune forme hors cadre, notes partout.
+- **Timing** : 14 min 30 prévues.
