@@ -1,0 +1,1 @@
+Masquage de la vidéo : python3 mask_video.py entree.mp4 sortie.mp4 journal.json (à lancer depuis ce dossier). Nécessite ref_recto.png et ref_verso.png (cartes redressées 856 × 540, NON fournies car elles contiennent des données personnelles).
